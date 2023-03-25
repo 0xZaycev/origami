@@ -13,15 +13,16 @@ local channels = KEYS;
 
 
 -- всякие ключи
-local client_id_key = "origami:clients:list:" .. node_id;
+local base_path_key = "origami";
+local client_id_key = base_path_key .. ":clients:list:" .. node_id;
 local client_lock_key = client_id_key .. ":lock";
 
 local client_channels_key = client_id_key .. ":channels";
 local client_temp_channels_key = client_channels_key .. ":temp";
 
-local channel_base_path_key = "origami:channels";
+local channel_base_path_key = base_path_key .. ":channels";
 
-local active_pool_key = "origami:clients:active:" .. node_id;
+local active_pool_key = base_path_key .. ":clients:active_pool:" .. node_id;
 
 
 
@@ -53,15 +54,15 @@ redis.call("hmset", client_id_key,
     "runtime_pid", runtime_pid,
     "hostname", hostname,
 
-    "in_pending_requests": "0",
-    "in_errored_requests": "0",
-    "in_processed_requests": "0",
+    "in_pending_requests", "0",
+    "in_errored_requests", "0",
+    "in_processed_requests", "0",
 
-    "out_pending_requests": "0",
-    "out_errored_requests": "0",
-    "out_processed_requests": "0",
+    "out_pending_requests", "0",
+    "out_errored_requests", "0",
+    "out_processed_requests", "0",
 
-    "last_ping_at", nil,
+    "last_ping_at", "0",
 
     "created_at", timestamp
 );
