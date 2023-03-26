@@ -37,6 +37,10 @@ local request_is_exists = redis.call("incr", request_lock_key);
 
 if not (request_is_exists == 1) then
     -- если данный запрос уже кто-то добавляет, то не надо ему мешать, он сам все сделает
+    -- так же, это может быть повторная отправка в случае разрыва соединения
+    redis.call('publish', "origami.c" .. sender_node_id, "1" .. request_id);
+
+
 
     return 1;
 end;
@@ -85,6 +89,10 @@ redis.call('hmset', request_key,
 redis.call("hincrby", sender_key, "out_pending_requests", "1");
 redis.call("sadd", sender_pending_pool_key, request_id);
 
+
+
+-- оповещаем иниатора что запрос был получен
+redis.call('publish', "origami.c" .. sender_node_id, "1" .. request_id);
 
 
 -- пробуем сразу найти исполнитель для этого запроса
@@ -181,7 +189,7 @@ redis.call("hmset", request_key,
 
 
 -- высылаем ивент исполнителю
-redis.call("publish", listener .. "." .. channel, request_id .. payload);
+redis.call("publish", "origami.b" .. listener .. channel, request_id .. payload);
 
 
 
