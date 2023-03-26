@@ -55,10 +55,12 @@ redis.call("hmset", client_id_key,
     "hostname", hostname,
 
     "in_pending_requests", "0",
+    "in_executing_requests", "0",
     "in_errored_requests", "0",
     "in_processed_requests", "0",
 
     "out_pending_requests", "0",
+    "out_executing_requests", "0",
     "out_errored_requests", "0",
     "out_processed_requests", "0",
 
