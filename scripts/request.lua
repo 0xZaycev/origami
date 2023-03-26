@@ -11,6 +11,9 @@ local base_path_key = "origami";
 local channels_base_path_key = base_path_key .. ":channels";
 local requests_base_path_key = base_path_key .. ":requests";
 
+local sender_key = base_path_key .. ":clients:" .. sender_node_id;
+local sender_pending_pool_key = sender_key .. ":out:pending_pool";
+
 local pending_pool_base_path_key = requests_base_path_key .. ":pending_pool";
 local pending_pool_list_key = pending_pool_base_path_key .. ":list";
 local pending_pool_count_key = pending_pool_base_path_key .. ":count";
@@ -64,8 +67,8 @@ redis.call('hmset', request_key,
     "response", "",
     "error", "",
 
-    "request_ack", "0",
-    "response_ack", "0",
+    "request_ack", "-1",
+    "response_ack", "-1",
 
     "sent_to_executor_at", "0",
     "executor_accept_at", "0",
@@ -75,6 +78,12 @@ redis.call('hmset', request_key,
 
     "created_at", timestamp
 );
+
+
+
+-- добавим запрос в список отправителя
+redis.call("hincrby", sender_key, "out_pending_requests", "1");
+redis.call("sadd", sender_pending_pool_key, request_id);
 
 
 
@@ -152,7 +161,7 @@ redis.call("incr", ack_pool_count_key);
 
 -- переменные для работы с клиентом
 local listener_key = base_path_key .. ":clients:" .. listener_node_id;
-local listener_pending_pool_key = listener_key .. ":pending";
+local listener_pending_pool_key = listener_key .. ":in:pending_pool";
 
 -- так же кладем запрос к исполнителю
 redis.call("hincrby", listener_key, "in_pending_requests", "1");
