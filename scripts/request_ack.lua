@@ -27,7 +27,7 @@ local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
 
 -- проверяем что запрос не взял кто-то другой
-local request_is_exists = redis.call("hincrby", request_key, "request_ack", "1");
+local request_is_exists = redis.call("hincrby", request_key, "request_executor_ack", "1");
 
 if not (request_is_exists == 0) then
     -- проверим что этот исполнитель и взял уже запрос
