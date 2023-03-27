@@ -12,7 +12,7 @@ local ack_pool_base_path_key = requests_base_path_key .. ":request_ack_pool";
 local ack_pool_list_key = ack_pool_base_path_key .. ":list";
 local ack_pool_count_key = ack_pool_base_path_key .. ":count";
 
-local exec_pool_base_path_key = requests_base_path_key .. ":request_exec_pool";
+local exec_pool_base_path_key = requests_base_path_key .. ":executing_pool";
 local exec_pool_list_key = exec_pool_base_path_key .. ":list";
 local exec_pool_count_key = exec_pool_base_path_key .. ":count";
 
@@ -27,7 +27,7 @@ local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
 
 -- проверяем что запрос не взял кто-то другой
-local request_is_exists = redis.call('hincrby', request_key, "request_ack", "1");
+local request_is_exists = redis.call("hincrby", request_key, "request_ack", "1");
 
 if not (request_is_exists == 0) then
     -- проверим что этот исполнитель и взял уже запрос
@@ -50,13 +50,13 @@ end;
 
 
 
--- пубираем запрос из пула ожидания
-redis.call("decr", ack_pool_count_key);
+-- убираем запрос из пула ожидания подтверждения
 redis.call("lrem", ack_pool_list_key, request_id);
+redis.call("decr", ack_pool_count_key);
 
 -- добавляем в пул исполнения
-redis.call("incr", exec_pool_count_key);
 redis.call("lpush", exec_pool_list_key, request_id);
+redis.call("incr", exec_pool_count_key);
 
 
 
