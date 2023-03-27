@@ -67,7 +67,7 @@ redis.call('hmset', request_key,
 
     "channel", channel,
     "request_id", request_id,
-    "payload", payload,
+    "params", payload,
     "response", "",
     "error", "",
 
