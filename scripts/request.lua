@@ -24,7 +24,6 @@ local ack_pool_count_key = ack_pool_base_path_key .. ":count";
 
 local request_base_path_key = requests_base_path_key .. ":" .. request_id;
 local request_key = request_base_path_key .. ":info";
-local request_lock_key = request_base_path_key .. ":request_lock";
 
 local channel_base_path_key = channels_base_path_key .. ":" .. channel;
 local channel_listeners_count_key = channel_base_path_key .. ":listeners_count";
@@ -33,9 +32,9 @@ local channel_listeners_list_key = channel_base_path_key .. ":listeners_list";
 
 
 -- проверяем что ранее не было запроса с таким же ID
-local request_is_exists = redis.call("incr", request_lock_key);
+local request_is_exists = redis.call("hincrby", request_key, "request_sender_ack", "1");
 
-if not (request_is_exists == 1) then
+if not (request_is_exists == 0) then
     -- если данный запрос уже кто-то добавляет, то не надо ему мешать, он сам все сделает
     -- так же, это может быть повторная отправка в случае разрыва соединения
     redis.call('publish', "origami.c" .. sender_node_id, "1" .. request_id);
@@ -71,8 +70,10 @@ redis.call('hmset', request_key,
     "response", "",
     "error", "",
 
-    "request_ack", "-1",
-    "response_ack", "-1",
+    "request_sender_ack", "0",
+    "request_executor_ack", "-1",
+    "response_sender_ack", "-1",
+    "response_executor_ack", "-1",
 
     "sent_to_executor_at", "0",
     "executor_accept_at", "0",
