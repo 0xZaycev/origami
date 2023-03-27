@@ -29,7 +29,7 @@ local request_key = request_base_path_key .. ":info";
 
 
 -- проверяем что ответ на запрос пришел впервые
-local response_is_received = redis.call("hincrby", request_key, "response_ack", "1");
+local response_is_received = redis.call("hincrby", request_key, "response_executor_ack", "1");
 
 if not (response_is_received == 0) then
     -- ответ уже был получен, просто оповестим исполнителя об этом
@@ -48,7 +48,7 @@ redis.call("lrem", exec_pool_list_key, request_id);
 redis.call("decr", exec_pool_count_key);
 
 -- добавляем в пул ожидания подтверждения получения
-redis.call("lpush", ack_pool_list_key, request_key);
+redis.call("lpush", ack_pool_list_key, request_id);
 redis.call("incr", ack_pool_count_key);
 
 
