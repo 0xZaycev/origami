@@ -79,37 +79,58 @@ redis.call("sadd", client_temp_channels_key, table.unpack(channels));
 -- узнаем разницу между старыми каналами и новыми
 local diff_channels = redis.call("sdiff", client_channels_key, client_temp_channels_key);
 
-for _, channel in pairs(diff_channels) do
-    local channel_listeners_list_key = channel_base_path_key .. ":" .. channel .. ":listeners_list";
-    local channel_listeners_count_key = channel_base_path_key .. ":" .. channel .. ":listeners_count";
+-- параметры канала
+local channel_name = "";
+local channel_concurrent = "";
 
-    local channel_is_exists = redis.call('sismember', client_channels_key, channel);
+for _, channel_parameter in pairs(diff_channels) do
+    if channel_name == "" then
+        channel_name = channel_parameter .. "";
+    else
+        channel_concurrent = channel_parameter .. "";
 
+        local channel_info_key = channel_base_path_key .. ":" .. channel_name .. ":info";
+        local channel_listeners_list_key = channel_base_path_key .. ":" .. channel_name .. ":listeners_list";
+        local channel_listeners_count_key = channel_base_path_key .. ":" .. channel_name .. ":listeners_count";
 
+        -- обновляем данные канала
+        redis.call('hmset', channel_info_key,
+            "name", channel_name,
+            "concurrent", channel_concurrent
+        );
 
-    if channel_is_exists == 1 then
-        -- уже была подписка на канал, надо отписаться
+        -- узнаем является ли клиент слушателем этого канала
+        local channel_is_exists = redis.call('sismember', client_channels_key, channel_name);
 
-        -- убираем клиента из списка доступных обработчиков
-        redis.call("srem", channel_listeners_list_key, node_id);
+        if channel_is_exists == 1 then
+            -- уже была подписка на канал, надо отписаться
 
-        -- декрементим кол-во обработчиков
-        local channel_listeners_decr = redis.call("decr", channel_listeners_count_key);
+            -- убираем клиента из списка доступных обработчиков
+            redis.call("srem", channel_listeners_list_key, node_id);
 
-        if channel_listeners_decr < 0 then -- защита от тупого чтоб не уходить ниже нуля (¯\_(ツ)_/¯)
-            redis.call("set", channel_listeners_count_key, "0");
+            -- декрементим кол-во обработчиков
+            local channel_listeners_decr = redis.call("decr", channel_listeners_count_key);
+
+            if channel_listeners_decr < 0 then -- защита от тупого чтоб не уходить ниже нуля (¯\_(ツ)_/¯)
+                redis.call("set", channel_listeners_count_key, "0");
+            end;
+
+            -- удираем подписку у клиента
+            redis.call("srem", client_channels_key, channel_name);
+        else
+            -- подписки не было, надо подписаться
+
+            -- добавляем клиента в список слушателей
+            redis.call("sadd", channel_listeners_list_key, node_id);
+
+            -- инкрементим кол-во слушаетелей
+            redis.call("incr", channel_listeners_count_key);
         end;
 
-        -- удираем подписку у клиента
-        redis.call("srem", client_channels_key, channel);
-    else
-        -- подписки не было, надо подписаться
 
-        -- добавляем клиента в список слушателей
-        redis.call("sadd", channel_listeners_list_key, node_id);
-
-        -- инкрементим кол-во слушаетелей
-        redis.call("incr", channel_listeners_count_key);
+        -- чистим параметры для следующей итерации
+        channel_name = "";
+        channel_concurrent = "";
     end;
 end;
 
