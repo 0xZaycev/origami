@@ -51,12 +51,10 @@ end;
 
 
 -- убираем запрос из пула ожидания подтверждения
-redis.call("lrem", ack_pool_list_key, request_id);
-redis.call("decr", ack_pool_count_key);
+redis.call("lrem", ack_pool_list_key, "1", request_id);
 
 -- добавляем в пул исполнения
-redis.call("lpush", exec_pool_list_key, request_id);
-redis.call("incr", exec_pool_count_key);
+redis.call("rpush", exec_pool_list_key, request_id);
 
 
 
