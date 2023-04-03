@@ -82,55 +82,73 @@ local diff_channels = redis.call("sdiff", client_channels_key, client_temp_chann
 -- параметры канала
 local channel_name = "";
 local channel_concurrent = "";
+local channel_reservoir_enable = ""; -- 0 - disable; 1 - enable; 2 - by group;
+local channel_reservoir_size = "";
+local channel_reservoir_interval = "";
 
 for _, channel_parameter in pairs(diff_channels) do
     if channel_name == "" then
         channel_name = channel_parameter .. "";
     else
-        channel_concurrent = channel_parameter .. "";
 
-        local channel_info_key = channel_base_path_key .. ":" .. channel_name .. ":info";
-        local channel_listeners_list_key = channel_base_path_key .. ":" .. channel_name .. ":listeners_list";
-        local channel_listeners_count_key = channel_base_path_key .. ":" .. channel_name .. ":listeners_count";
-
-        -- обновляем данные канала
-        redis.call('hmset', channel_info_key,
-            "name", channel_name,
-            "concurrent", channel_concurrent
-        );
-
-        -- узнаем является ли клиент слушателем этого канала
-        local channel_is_exists = redis.call('sismember', client_channels_key, channel_name);
-
-        if channel_is_exists == 1 then
-            -- уже была подписка на канал, надо отписаться
-
-            -- убираем клиента из списка доступных обработчиков
-            redis.call("srem", channel_listeners_list_key, node_id);
-
-            -- декрементим кол-во обработчиков
-            local channel_listeners_decr = redis.call("decr", channel_listeners_count_key);
-
-            if channel_listeners_decr < 0 then -- защита от тупого чтоб не уходить ниже нуля (¯\_(ツ)_/¯)
-                redis.call("set", channel_listeners_count_key, "0");
-            end;
-
-            -- удираем подписку у клиента
-            redis.call("srem", client_channels_key, channel_name);
+        if channel_concurrent == "" then
+            channel_concurrent = channel_parameter .. "";
         else
-            -- подписки не было, надо подписаться
 
-            -- добавляем клиента в список слушателей
-            redis.call("sadd", channel_listeners_list_key, node_id);
+            if channel_reservoir_enable == "" then
+                channel_reservoir_enable = channel_parameter .. "";
+            else
 
-            -- инкрементим кол-во слушаетелей
-            redis.call("incr", channel_listeners_count_key);
-        end;
+                if channel_reservoir_size == "" then
+                    channel_reservoir_size = channel_parameter .. "";
+                else
+                    channel_reservoir_interval = channel_parameter .. "";
 
 
-        -- чистим параметры для следующей итерации
-        channel_name = "";
-        channel_concurrent = "";
+
+                    local channel_info_key = channel_base_path_key .. ":" .. channel_name .. ":info";
+                    local channel_listeners_list_key = channel_base_path_key .. ":" .. channel_name .. ":listeners";
+
+                    -- обновляем данные канала
+                    redis.call('hmset', channel_info_key,
+                        "name", channel_name,
+                        "concurrent", channel_concurrent,
+                        "reservoir_enable", channel_reservoir_enable,
+                        "reservoir_size", channel_reservoir_size,
+                        "reservoir_interval", channel_reservoir_interval
+                    );
+
+                    -- узнаем является ли клиент слушателем этого канала
+                    local channel_is_exists = redis.call('sismember', client_channels_key, channel_name);
+
+                    if channel_is_exists == 1 then
+                        -- уже была подписка на канал, надо отписаться
+
+                        -- убираем клиента из списка доступных обработчиков
+                        redis.call("srem", channel_listeners_list_key, node_id);
+
+                        -- удираем подписку у клиента
+                        redis.call("srem", client_channels_key, channel_name);
+                    else
+                        -- подписки не было, надо подписаться
+
+                        -- добавляем клиента в список слушателей
+                        redis.call("sadd", channel_listeners_list_key, node_id);
+
+                        -- инкрементим кол-во слушаетелей
+                        redis.call("incr", channel_listeners_count_key);
+                    end;
+
+
+                    -- чистим параметры для следующей итерации
+                    channel_name = "";
+                    channel_concurrent = "";
+                    channel_reservoir_enable = "";
+                    channel_reservoir_size = "";
+                    channel_reservoir_interval = "";
+                end;
+            end
+        end
     end;
 end;
 
