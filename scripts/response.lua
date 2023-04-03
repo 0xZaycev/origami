@@ -14,11 +14,9 @@ local requests_base_path_key = base_path_key .. ":requests";
 
 local ack_pool_base_path_key = requests_base_path_key .. ":response_ack_pool";
 local ack_pool_list_key = ack_pool_base_path_key .. ":list";
-local ack_pool_count_key = ack_pool_base_path_key .. ":count";
 
 local exec_pool_base_path_key = requests_base_path_key .. ":executing_pool";
 local exec_pool_list_key = exec_pool_base_path_key .. ":list";
-local exec_pool_count_key = exec_pool_base_path_key .. ":count";
 
 local executor_key = clients_base_path .. ":" .. executor_node_id;
 local executor_executing_pool_key = executor_key .. ":in:executing_pool";
@@ -34,7 +32,7 @@ local response_is_received = redis.call("hincrby", request_key, "response_execut
 if not (response_is_received == 0) then
     -- ответ уже был получен, просто оповестим исполнителя об этом
 
-    redis.call("publish", "origami.g" .. executor_node_id, "1");
+    redis.call("publish", "origami.g" .. executor_node_id, request_id);
 
 
 
@@ -44,42 +42,52 @@ end;
 
 
 -- убираем запрос из пула исполнения
-redis.call("lrem", exec_pool_list_key, request_id);
-redis.call("decr", exec_pool_count_key);
-
--- добавляем в пул ожидания подтверждения получения
-redis.call("lpush", ack_pool_list_key, request_id);
-redis.call("incr", ack_pool_count_key);
+redis.call("lrem", exec_pool_list_key, "1", request_id);
 
 
 
 -- узнаем текущее время
 local time = redis.call("time");
-local timestamp = time[1] .. "." .. time[2];
+local timestamp = tonumber( time[1] .. "." .. time[2] );
 
 
 
 -- обновляем данные запроса
 redis.call("hmset", request_key,
-    "state", "WAIT_RESPONSE_ACK",
+    "state", "DONE",
 
     "response", payload,
     "error", is_error,
 
     "executor_complete_at", timestamp,
-    "sent_to_initiator_at", timestamp
+    "sent_to_initiator_at", timestamp,
+
+    "initiator_accept_at", timestamp
 );
 
 
 
--- узнаем ID инициатора запроса
-local sender_node_id = redis.call("hget", request_key, "sender_node_id");
+-- получаем данные запроса
+local request_data = redis.call("hmget", request_key,
+    "sender_node_id",
+    "channel", "group_key",
+    "no_response"
+);
+
+-- парсим данные
+local sender_node_id = request_data[1];
+local channel = request_data[2];
+local group_key = request_data[3];
+local no_response = request_data[4];
 
 
 
 -- формируем ключ для запросов к исполнителю
 local sender_key = clients_base_path .. ":" .. sender_node_id;
 local sender_executing_pool_key = sender_key .. ":out:executing_pool";
+
+-- ключи для работы с каналом
+local channel_group_key = channels_base_path_key .. ":" .. channel .. ":groups:" .. group_key;
 
 
 
@@ -108,13 +116,30 @@ redis.call("srem", executor_executing_pool_key, request_id);
 -- убираем запрос из пула исполнения инициатора
 redis.call("srem", sender_executing_pool_key, request_id);
 
+-- уменьшаем счетчик группы канала
+redis.call("decr", channel_group_key);
+
 
 
 -- оповещаем исполнителя о получении его ответа на запрос
-redis.call("publish", "origami.g" .. executor_node_id, "1");
+redis.call("publish", "origami.g" .. executor_node_id, request_id);
 
--- оповещаем исполнителя о том, что запрос был исполнен
-redis.call("publish", "origami.e" .. sender_node_id, is_error .. request_id .. payload);
+if no_response == "0" then
+    -- если инициатору нужен ответ, то ему его отправить
+
+    -- обновляем данные запроса
+    redis.call("hmset", request_key,
+        "state", "WAIT_RESPONSE_ACK",
+        "initiator_accept_at", "0",
+        "try_after", timestamp + 0.1
+    );
+
+    -- добавляем в пул ожидания подтверждения получения
+    redis.call("rpush", ack_pool_list_key, request_id);
+
+    -- оповещаем инициатора о том, что запрос был исполнен
+    redis.call("publish", "origami.e" .. sender_node_id, is_error .. request_id .. payload);
+end;
 
 
 
