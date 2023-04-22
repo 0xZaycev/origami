@@ -1,0 +1,9 @@
+import {Script} from "../utils/Script";
+
+import {headerScript} from "./header.script";
+
+export const response_ackScript = new Script();
+
+response_ackScript.loadScript('../../scripts/response_ack.lua');
+
+response_ackScript.loadDep(headerScript);

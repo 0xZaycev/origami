@@ -1,0 +1,1 @@
+redis.replicate_commands()

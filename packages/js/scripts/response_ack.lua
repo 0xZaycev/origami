@@ -58,4 +58,9 @@ redis.call("publish", "origami.f" .. sender_node_id, request_id);
 
 
 
+-- тик
+tick();
+
+
+
 return 1;
