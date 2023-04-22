@@ -124,6 +124,9 @@ redis.call("decr", channel_group_key);
 -- оповещаем исполнителя о получении его ответа на запрос
 redis.call("publish", "origami.g" .. executor_node_id, request_id);
 
+
+
+-- проверяем нужен ли инициатору ответ
 if no_response == "0" then
     -- если инициатору нужен ответ, то ему его отправить
 
@@ -140,6 +143,11 @@ if no_response == "0" then
     -- оповещаем инициатора о том, что запрос был исполнен
     redis.call("publish", "origami.e" .. sender_node_id, is_error .. request_id .. payload);
 end;
+
+
+
+-- тик
+tick();
 
 
 
