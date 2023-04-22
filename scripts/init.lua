@@ -7,6 +7,10 @@ local app_version = ARGV[4];
 
 local runtime_pid = ARGV[5];
 local hostname = ARGV[6];
+local platform = ARGV[7];
+
+local client = ARGV[8];
+local clientVersion = ARGV[9];
 
 local channels = KEYS;
 
@@ -53,6 +57,10 @@ redis.call("hmset", client_id_key,
 
     "runtime_pid", runtime_pid,
     "hostname", hostname,
+    "platform", platform,
+
+    "client", client,
+    "client_version", clientVersion,
 
     "in_pending_requests", "0",
     "in_executing_requests", "0",
