@@ -31,7 +31,17 @@ local request_is_exists = redis.call("hincrby", request_key, "request_executor_a
 
 if not (request_is_exists == 0) then
     -- проверим что этот исполнитель и взял уже запрос
-    local request_executor = redis.call("hget", request_key, "executor_node_id");
+    local request_data = redis.call("hmget", request_key, "state", "executor_node_id");
+
+    local request_state = request_data[1];
+    local request_executor = request_data[2];
+
+    -- делаем проверку статуса запроса на случай если
+    -- исполнитель получил повторное событие и пытается
+    -- снова исполнить запрос
+    if (request_state == "WAIT_RESPONSE_ACK" or request_state == "DONE") then
+        redis.call("publish", "origami.d" .. executor_node_id, "0" .. request_id);
+    end;
 
     if request_executor == executor_node_id then
         -- это он и есть, прислал повторное подтверждение
@@ -41,7 +51,7 @@ if not (request_is_exists == 0) then
         -- надо уведомить что запрос был уже перераспределен другому исполнителю
 
         redis.call("publish", "origami.d" .. executor_node_id, "0" .. request_id);
-    end
+    end;
 
 
 
@@ -106,6 +116,11 @@ redis.call("smove", executor_pending_pool_key, executor_executing_pool_key, requ
 -- оповещаем исполнителя о том, что он может начать обрабатывать запрос
 -- возможно, оповещение можно перенести выше чтобы исполнитель не тратил время
 redis.call('publish', "origami.d" .. executor_node_id, "1" .. request_id);
+
+
+
+-- тик
+tick();
 
 
 
