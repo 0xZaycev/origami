@@ -141,7 +141,7 @@ if no_response == "0" then
     redis.call("rpush", ack_pool_list_key, request_id);
 
     -- оповещаем инициатора о том, что запрос был исполнен
-    redis.call("publish", "origami.e" .. sender_node_id, is_error .. request_id .. payload);
+    redis.call("publish", "origami.e" .. sender_node_id, is_error .. request_id .. executor_node_id .. payload);
 end;
 
 

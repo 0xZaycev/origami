@@ -62,6 +62,7 @@ function tick()
             -- получаем данные из запроса
             local request_data = redis.call("hmget", request_key,
                 "sender_node_id",
+                "executor_node_id",
                 "try_after",
                 "response", "error",
                 "sent_to_initiator_at"
@@ -69,10 +70,11 @@ function tick()
 
             -- парсим данные запроса
             local sender_node_id = request_data[1];
-            local try_after = tonumber( request_data[2] );
-            local response = request_data[3];
-            local error = request_data[4];
-            local sent_to_initiator_at = tonumber( request_data[5] );
+            local executor_node_id = request_data[2];
+            local try_after = tonumber( request_data[3] );
+            local response = request_data[4];
+            local error = request_data[5];
+            local sent_to_initiator_at = tonumber( request_data[6] );
 
 
 
@@ -96,7 +98,7 @@ function tick()
                     response_ack_offset = response_ack_offset + 1;
                 else
                     -- уведоиляем инициатора
-                    redis.call("publish", "origami.e" .. sender_node_id, error .. request_id .. response);
+                    redis.call("publish", "origami.e" .. sender_node_id, error .. request_id .. executor_node_id .. response);
 
                     -- обновляем данные запроса
                     redis.call("hset", request_key,
@@ -335,12 +337,12 @@ function tick()
 
                     -- обновим данные в запросе
                     redis.call("hmset", request_key,
-                            "executor_node_id", "",
-                            "state", "DONE",
-                            "error", "2", -- 0 - без ошибок; 1 - непредвиденная ошибка; 2 - время ожидания превышено;
-                            "request_expired", "0",
-                            "executor_complete_at", timestamp,
-                            "sent_to_initiator_at", timestamp
+                        "executor_node_id", "",
+                        "state", "DONE",
+                        "error", "2", -- 0 - без ошибок; 1 - непредвиденная ошибка; 2 - время ожидания превышено;
+                        "request_expired", "0",
+                        "executor_complete_at", timestamp,
+                        "sent_to_initiator_at", timestamp
                     );
 
 

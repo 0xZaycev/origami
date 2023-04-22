@@ -168,7 +168,8 @@ export class Producer {
     private async requestResponse(message: string) {
         // 0-1 - is error
         // 1-37 - requestId
-        // 37 - response
+        // 37-73 - executor node id (optional, if timeout executor node id length is 0)
+        // 37/73 - response
 
         const requestId = message.substring(1, 37);
 
@@ -183,12 +184,16 @@ export class Producer {
         request.state = ERequestState.SENDING_RESPONSE_ACK;
         request.timestamp = Date.now();
 
-        const response = message.substring(37);
-
         if(message[0] === '0') {
-            request.resolver(BaseResult.ok(JSON.parse(response)));
+            const executorId = message.substring(37, 73);
+            const response = message.substring(73);
+
+            request.resolver(BaseResult.ok(JSON.parse(response), executorId));
         } else if(message[0] === '1') {
-            request.resolver(BaseResult.fail(EResponseCode.UNEXPECTED_ERROR, JSON.parse(response)));
+            const executorId = message.substring(37, 73);
+            const response = message.substring(73);
+
+            request.resolver(BaseResult.fail(EResponseCode.UNEXPECTED_ERROR, JSON.parse(response), executorId));
         } else {
             request.resolver(BaseResult.fail(EResponseCode.TIMEOUT_ERROR, null));
         }
