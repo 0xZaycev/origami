@@ -6,6 +6,8 @@ local payload = ARGV[4];
 local group = ARGV[5];
 local no_response = ARGV[6];
 local timeout = ARGV[7];
+local try_after = ARGV[8];
+local weight = ARGV[9];
 
 
 
@@ -39,6 +41,12 @@ end;
 
 
 
+if try_after == '0' then
+    try_after = (timestamp - 1);
+end;
+
+
+
 -- узнаем текущее время
 local time = redis.call("time");
 local timestamp = tonumber( time[1] .. "." .. time[2] );
@@ -59,10 +67,11 @@ redis.call('hmset', request_key,
 
     "channel", channel,
     "group_key", group,
+    "weight", weight,
 
     "expired", timestamp + tonumber(timeout),
     "timeout", timeout,
-    "try_after", (timestamp - 1),
+    "try_after", try_after,
     "no_response", no_response,
 
     "request_id", request_id,
@@ -98,6 +107,11 @@ redis.call("rpush", pending_pool_list_key, request_id);
 
 -- оповещаем иниатора что запрос был получен
 redis.call('publish', "origami.c" .. sender_node_id, request_id);
+
+
+
+-- тик
+tick();
 
 
 
