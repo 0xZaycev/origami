@@ -462,7 +462,7 @@ function tick()
 
 
                             -- оповещаем исполнителя о новой задаче
-                            redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id .. params);
+                            redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id .. sender_node_id .. params);
                         else
                             -- узнаем кол-во активных запросов
                             local channel_active_requests = redis.call("incrby", channel_group_key, "0");
