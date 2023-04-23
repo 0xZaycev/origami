@@ -8,7 +8,8 @@ local function tick()
     local executing_pool_base_path_key = requests_base_path_key .. ":executing_pool";
     local response_ack_pool_base_path_key = requests_base_path_key .. ":response_ack_pool";
 
-    local tick_lock_key = base_path_key .. ":tick_lock";
+    local tick_lock_key = base_path_key .. ":tick:lock";
+    local tick_time_key = base_path_key .. ":tick:time";
     local pending_pool_list_key = pending_pool_base_path_key .. ":list";
     local request_ack_pool_list_key = request_ack_pool_base_path_key .. ":list";
     local executing_pool_list_key = executing_pool_base_path_key .. ":list";
@@ -30,6 +31,26 @@ local function tick()
     -- узнаем текущее время
     local time = redis.call("time");
     local timestamp = tonumber( time[1] .. "." .. time[2] );
+
+
+
+    -- делаем проверку времени чтобы не слишком часто выполнять тик
+    local tick_time = redis.call("get", tick_time_key);
+
+    if tick_time == nil then
+        -- для первого запуска запоняем на месте
+        tick_time = timestamp;
+    else
+        -- парсим число
+        tick_time = tonumber(tick_time);
+    end;
+
+    if timestamp <= tick_time then
+        -- еще рано выполнять тик, убираем блокировку
+        redis.call("set", tick_lock_key, "0");
+
+        return 1;
+    end;
 
 
 
@@ -55,7 +76,7 @@ local function tick()
         -- начинаем проходиться по массиву
         for _, request_id in pairs(requests) do
             -- срузу формируем нужные нам ключи
-            local request_key = requests_base_path_key .. ":" .. request_id .. ":info";
+            local request_key = requests_base_path_key .. ":list:" .. request_id .. ":info";
 
 
 
@@ -101,9 +122,7 @@ local function tick()
                     redis.call("publish", "origami.e" .. sender_node_id, error .. request_id .. executor_node_id .. response);
 
                     -- обновляем данные запроса
-                    redis.call("hset", request_key,
-                        "try_after", timestamp + 0.1
-                    );
+                    redis.call("hset", request_key, "try_after", timestamp + 0.1);
                 end;
             end;
         end;
@@ -133,12 +152,13 @@ local function tick()
         -- начинаем проходиться по массиву
         for _, request_id in pairs(requests) do
             -- срузу формируем нужные нам ключи
-            local request_key = requests_base_path_key .. ":" .. request_id .. ":info";
+            local request_key = requests_base_path_key .. ":list:" .. request_id .. ":info";
 
 
 
             -- получаем данные из запроса
             local request_data = redis.call("hmget", request_key,
+                    "sender_node_id",
                     "executor_node_id",
                     "channel", "group_key",
                     "try_after",
@@ -147,12 +167,13 @@ local function tick()
             );
 
             -- парсим данные запроса
-            local executor_node_id = request_data[1];
-            local channel = request_data[2];
-            local group_key = request_data[3];
-            local try_after = tonumber( request_data[4] );
-            local params = request_data[5];
-            local sent_to_executor_at = tonumber( request_data[6] );
+            local sender_node_id = request_data[1];
+            local executor_node_id = request_data[2];
+            local channel = request_data[3];
+            local group_key = request_data[4];
+            local try_after = tonumber( request_data[5] );
+            local params = request_data[6];
+            local sent_to_executor_at = tonumber( request_data[7] );
 
 
 
@@ -231,7 +252,7 @@ local function tick()
                     -- ну и чтобы не сильно спамить исполнителя, то проверяем
                     -- что прошло достаточно времени перед повторной отправкой
 
-                    redis.call("publish", "origami.b" .. executor_node_id .. channel, request_id .. params);
+                    redis.call("publish", "origami.b" .. executor_node_id .. channel, request_id .. sender_node_id .. params);
                 end;
             end;
         end;
@@ -263,7 +284,7 @@ local function tick()
         -- начинаем проходиться по полученному массиву
         for _, request_id in pairs(pending_requests) do
             -- срузу формируем нужные нам ключи
-            local request_key = requests_base_path_key .. ":" .. request_id .. ":info";
+            local request_key = requests_base_path_key .. ":list:" .. request_id .. ":info";
 
             -- получаем данные из запроса
             local request_data = redis.call("hmget", request_key,
@@ -523,6 +544,9 @@ local function tick()
     end;
 
 
+
+    -- выставляем время для следующего тика
+    redis.call("set", tick_time_key, timestamp + 0.1);
 
     -- снимаем блокировку с тика
     redis.call("set", tick_lock_key, "0");

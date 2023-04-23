@@ -8,7 +8,7 @@ local request_id = ARGV[2];
 local base_path_key = "origami";
 local requests_base_path_key = base_path_key .. ":requests";
 
-local request_base_path_key = requests_base_path_key .. ":" .. request_id;
+local request_base_path_key = requests_base_path_key .. ":list:" .. request_id;
 local request_key = request_base_path_key .. ":info";
 
 local ack_pool_base_path_key = requests_base_path_key .. ":response_ack_pool";
