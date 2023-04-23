@@ -287,7 +287,6 @@ export interface IRequestOptions {
     noResponseAck: boolean;
 }
 export enum EResponseCode {
-    SUCCESS,
     UNEXPECTED_ERROR,
     TIMEOUT_ERROR,
 }
