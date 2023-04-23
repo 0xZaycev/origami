@@ -6,15 +6,17 @@ import {Listeners} from "./utils/Listeners";
 import {BaseResult, TBaseResult} from "./utils/BaseResult";
 
 export class Redis {
+    public readonly name: string;
+
     // Connection options
     private options: IConnectionOptions;
 
     // Connection state
-    private state: EConnectionState = EConnectionState.CREATED;
+    private state: EConnectionState = EConnectionState.CLOSED;
     private stateChangeQueue = Promise.resolve<TBaseResult>(BaseResult.ok(null));
 
     // TCP socket
-    private socket: Socket = new Socket();
+    private socket: Socket | undefined;
 
     // aka events-emitter
     private listeners: Listeners = new Listeners();
@@ -27,16 +29,65 @@ export class Redis {
     private errorHandler: IErrorHandler | undefined;
     private closeHandler: ICloseHandler | undefined;
 
+    private _onClose = this.onSocketClose.bind(this);
+    private _onError = this.onSocketError.bind(this);
+    private _onReady = this.onSocketReady.bind(this);
     private _onData = this.onSocketData.bind(this);
 
     private dataBuffer: Buffer = Buffer.from([]);
 
-    constructor(options: IConnectionOptions) {
-        this.options = options;
 
-        this.prepareSocket();
+    constructor(name: string, options: IConnectionOptions) {
+        this.name = name;
+
+        this.options = options;
     }
 
+
+    private makeSocket() {
+        this.socket = new Socket({
+            allowHalfOpen: false,
+            readable: true,
+            writable: true,
+        });
+
+        this.socket.on('ready', this._onReady);
+
+        if(!this.sendOnly) {
+            this.socket.on('data', this._onData);
+        }
+
+        this.socket.on('error', this._onError);
+
+        this.socket.on('end', this._onClose);
+        this.socket.on('close', this._onClose);
+    }
+    private destroySocket() {
+        if(!this.socket) {
+            return;
+        }
+
+        this.socket.off('ready', this._onReady);
+        this.socket.off('data', this._onData);
+
+        this.socket.off('error', this._onError);
+
+        this.socket.off('end', this._onClose);
+        this.socket.off('close', this._onClose);
+
+        try {
+            this.socket.end();
+            this.socket.destroy();
+        } catch (e) {
+            //
+        }
+
+        delete this.socket;
+
+        this.socket = undefined;
+
+        this.dropPendingCalls();
+    }
 
 
     connect(): Promise<TConnect> {
@@ -46,11 +97,6 @@ export class Redis {
         return this.stateChangeQueue as Promise<TConnect>;
     }
     private async _connect(): Promise<TConnect> {
-        if(!(this.state === EConnectionState.CREATED || this.state === EConnectionState.CLOSED)) {
-            return BaseResult
-                .fail(EConnectionCode.WRONG_STATE, 'in connect if state');
-        }
-
         this.listeners.clear();
 
         this.changeState(EConnectionState.CONNECTING);
@@ -59,7 +105,11 @@ export class Redis {
             const timer = setTimeout(() => {
                 removeListeners();
 
+                this.destroySocket();
+
                 this.changeState(EConnectionState.CLOSED);
+
+                this.emitClose();
 
                 resolve(
                     BaseResult
@@ -75,10 +125,8 @@ export class Redis {
                 clearTimeout(timer);
             };
 
-            this.listeners.set('socket:error', (error: Error) => {
+            this.listeners.set('socket:error', (error: Error & {code?: string}) => {
                 removeListeners();
-
-                this.changeState(EConnectionState.CLOSED);
 
                 resolve(
                     BaseResult
@@ -88,8 +136,6 @@ export class Redis {
             this.listeners.set('socket:close', () => {
                 removeListeners();
 
-                this.changeState(EConnectionState.CLOSED);
-
                 resolve(
                     BaseResult
                         .fail(EConnectionCode.CONNECTION_CLOSED),
@@ -98,8 +144,6 @@ export class Redis {
             this.listeners.set('socket:ready', async () => {
                 removeListeners();
 
-                this.changeState(EConnectionState.CONNECTED);
-
                 resolve(
                     BaseResult
                         .ok(null),
@@ -107,14 +151,16 @@ export class Redis {
             });
         });
 
-        this.socket.connect({
+        this.makeSocket();
+
+        this.socket!.connect({
             noDelay: true,
             keepAlive: true,
             host: this.options.host,
             port: this.options.port,
         });
 
-        this.socket.setKeepAlive(true, 5000);
+        this.socket!.setKeepAlive(true, 5000);
 
         return promise;
     }
@@ -126,13 +172,6 @@ export class Redis {
         return this.stateChangeQueue as Promise<TClose>;
     }
     private async _close(): Promise<TClose> {
-        // if(this.state !== EConnectionState.CONNECTED) {
-        //     this.changeState(EConnectionState.CLOSED);
-        //
-        //     return BaseResult
-        //         .fail(EConnectionCode.WRONG_STATE, 'in close if state');
-        // }
-
         this.listeners.clear();
 
         this.changeState(EConnectionState.CLOSING);
@@ -141,11 +180,15 @@ export class Redis {
             const waitingFuse = setTimeout(() => {
                 removeListeners();
 
+                this.changeState(EConnectionState.CLOSED);
+
+                this.emitClose();
+
                 resolve(
                     BaseResult
                         .ok(null),
                 );
-            }, 500) as any as number;
+            }, 1000) as any as number;
 
             const removeListeners = () => {
                 clearTimeout(waitingFuse);
@@ -174,25 +217,13 @@ export class Redis {
             });
         });
 
-        try {
-            this.socket.end();
-            this.socket.destroy();
-        } catch (e) {
-            console.log('Error when closing connection', e);
-        }
+        this.destroySocket();
 
         return promise;
     }
 
 
-
     request<RESULT = any>(data: string): Promise<TRequest<RESULT>> {
-        if(this.state !== EConnectionState.CONNECTED) {
-            return Promise.resolve(
-                BaseResult.fail(ESendCode.CONNECTION_LOST, null),
-            );
-        }
-
         if(this.sendOnly) {
             return Promise.resolve(
                 BaseResult.fail(ESendCode.SEND_ONLY_ENABLED, null),
@@ -200,32 +231,42 @@ export class Redis {
         }
 
         return new Promise((resolve) => {
-            try {
-                this.socket.write(data);
-                this.pendingCalls.push(resolve);
-            } catch (e) {
-                resolve(BaseResult.fail(ESendCode.UNEXPECTED_ERROR, e as Error));
+            if(!this.socket) {
+                return resolve(BaseResult.fail(ESendCode.UNEXPECTED_ERROR, null));
             }
+
+            this.pendingCalls.push(resolve);
+
+            this._send(data);
         });
     }
 
     send(data: string): TSend {
-        if(this.state !== EConnectionState.CONNECTED) {
-            return BaseResult.fail(ESendCode.CONNECTION_LOST, null);
-        }
-
         if(!this.sendOnly) {
             return BaseResult.fail(ESendCode.SEND_ONLY_DISABLED, null);
         }
 
+        this._send(data);
+
+        return BaseResult.ok(undefined);
+    }
+
+    private _send(data: string) {
+        if(!this.socket) {
+            return;
+        }
+
+        if(this.state !== EConnectionState.CONNECTED) {
+            return;
+        }
+
         try {
             this.socket.write(data);
-
-            return BaseResult.ok(undefined);
-        } catch (e) {
-            return BaseResult.fail(ESendCode.UNEXPECTED_ERROR, e as Error);
+        } catch (e: any) {
+            this.emitError(e);
         }
     }
+
 
     setSendOnly(sendOnly: boolean) {
         if(this.sendOnly === sendOnly) {
@@ -234,6 +275,10 @@ export class Redis {
 
         this.sendOnly = sendOnly;
 
+        if(!this.socket) {
+            return;
+        }
+
         if(this.sendOnly) {
             this.socket.off('data', this._onData);
         } else {
@@ -241,34 +286,40 @@ export class Redis {
         }
     }
 
+
     onMessage(handler?: IMessageHandler) {
         this.messageHandler = handler;
     }
-
     onError(handler: IErrorHandler) {
         this.errorHandler = handler;
     }
-
     onClose(handler: ICloseHandler) {
         this.closeHandler = handler;
     }
 
 
-
-    // binding socket events
-    private prepareSocket() {
-        this.socket.on('ready', this.onSocketReady.bind(this));
-        this.socket.on('data', this._onData);
-
-        this.socket.on('error', this.onSocketError.bind(this));
-
-        this.socket.on('end', this.onSocketClose.bind(this));
-        this.socket.on('close', this.onSocketClose.bind(this));
+    private emitMessage(data: [string, string, string]) {
+        if(this.messageHandler) {
+            this.messageHandler(data);
+        }
     }
+    private emitError(error: Error) {
+        if(this.errorHandler) {
+            this.errorHandler(error);
+        }
+    }
+    private emitClose() {
+        if(this.closeHandler) {
+            this.closeHandler();
+        }
+    }
+
 
     // socket listeners
     private onSocketReady() {
         this.listeners.call('socket:ready');
+
+        this.changeState(EConnectionState.CONNECTED);
     }
     private onSocketData(data: Buffer) {
         if(this.dataBuffer.length) {
@@ -302,14 +353,12 @@ export class Redis {
             }
 
             if(!this.sendOnly) {
-                if(this.messageHandler) {
-                    this.messageHandler(parsedData[0]);
-                } else {
-                    const resolver = this.pendingCalls.shift();
+                this.emitMessage(parsedData[0]);
 
-                    if(resolver) {
-                        resolver(BaseResult.ok(parsedData[0]));
-                    }
+                const resolver = this.pendingCalls.shift();
+
+                if(resolver) {
+                    resolver(BaseResult.ok(parsedData[0]));
                 }
             }
         }
@@ -317,15 +366,24 @@ export class Redis {
     private onSocketError(error: Error) {
         this.listeners.call('socket:error', error);
 
-        if(this.errorHandler) {
-            this.errorHandler(error);
-        }
+        this.emitError(error)
+
+        this.destroySocket();
+
+        this.changeState(EConnectionState.CLOSED);
+
+        this.emitClose();
     }
     private onSocketClose(errored: boolean | undefined) {
         this.listeners.call('socket:close', !!errored);
 
+        this.destroySocket();
+
         this.changeState(EConnectionState.CLOSED);
+
+        this.emitClose();
     }
+
 
     // change connection state
     private changeState(state: EConnectionState) {
@@ -335,22 +393,11 @@ export class Redis {
 
         this.state = state;
 
-        if(this.options.onStateChange) {
-            try {
-                this.options.onStateChange(state);
-            } catch (e) {
-                console.log('Unexpected error in onStateChange handler', e);
-            }
-        }
-
         if(state === EConnectionState.CLOSED) {
             this.dropPendingCalls();
-
-            if(this.closeHandler) {
-                this.closeHandler();
-            }
         }
     }
+
 
     private dropPendingCalls() {
         const payload = BaseResult.fail(ESendCode.CONNECTION_LOST, null);
@@ -379,7 +426,6 @@ export enum ESendCode {
 }
 
 export enum EConnectionState {
-    CREATED,
     CONNECTING,
     CONNECTED,
     CLOSING,
