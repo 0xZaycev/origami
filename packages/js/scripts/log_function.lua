@@ -2,7 +2,7 @@ local function log(...)
     local message = "";
 
     for _, msg in pairs(arg) do
-        if not _ == "n" then
+        if not (_ == "n") then
             message = message .. " " .. msg;
         end;
     end;
