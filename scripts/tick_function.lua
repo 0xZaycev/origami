@@ -20,7 +20,15 @@ local function tick()
     -- для начала надо поставить блокировку
     local tick_lock_counter = redis.call("incr", tick_lock_key);
 
-    if not (tick_lock_counter == 1) then
+    if tick_lock_counter == 1 then
+        -- узнаем текущее время
+        local time = redis.call("time");
+        local timestamp = tonumber( time[1] .. "." .. time[2] );
+
+        redis.call("set", tick_time_key, timestamp);
+    end;
+
+    if not (tick_lock_counter == 2) then
         -- если счетчик блокировки больше одно, значит тик уже выполняется
 
         return 1;
@@ -35,22 +43,14 @@ local function tick()
 
 
     -- делаем проверку времени чтобы не слишком часто выполнять тик
-    local tick_time = redis.call("get", tick_time_key);
+    local tick_time = tonumber( redis.call("get", tick_time_key) );
 
-    if tick_time == nil then
-        -- для первого запуска запоняем на месте
-        tick_time = timestamp;
-    else
-        -- парсим число
-        tick_time = tonumber(tick_time);
-    end;
-
-    if timestamp <= tick_time then
-        -- еще рано выполнять тик, убираем блокировку
-        redis.call("set", tick_lock_key, "0");
-
-        return 1;
-    end;
+    --if timestamp <= tick_time then
+    --    -- еще рано выполнять тик, убираем блокировку
+    --    redis.call("set", tick_lock_key, "1");
+    --
+    --    return 1;
+    --end;
 
 
 
@@ -180,10 +180,11 @@ local function tick()
             -- ключи, которые мы не могли сформировать без данных запроса
             local channel_group_key = channels_base_path_key .. ":" .. channel .. ":groups:" .. group_key;
 
-            local executor_client_key = base_path_key .. ":clients:list:" .. executor_node_id;
+            local executor_base_key = base_path_key .. ":clients:list:" .. executor_node_id;
+            local executor_client_key = executor_base_key .. ":info";
             local executor_active_pool_key = base_path_key .. ":clients:active_pool:" .. executor_node_id;
 
-            local executor_pending_pool_key = executor_client_key .. ":in:pending_pool";
+            local executor_pending_pool_key = executor_base_key .. ":in:pending_pool";
 
 
 
@@ -312,16 +313,18 @@ local function tick()
             local channel_groups_key = channels_base_path_key .. ":" .. channel .. ":groups";
             local channel_listeners_list_key = channels_base_path_key .. ":" .. channel .. ":listeners";
 
-            local sender_client_key = base_path_key .. ":clients:list:" .. sender_node_id;
-            local executor_client_key = base_path_key .. ":clients:list:" .. executor_node_id;
+            local sender_base_key = base_path_key .. ":clients:list:" .. sender_node_id;
+            local sender_client_key = sender_base_key .. ":info";
+            local executor_base_key = base_path_key .. ":clients:list:" .. executor_node_id;
+            local executor_client_key = executor_base_key .. ":info";
 
-            local sender_pending_pool_key = sender_client_key .. ":out:pending_pool";
-            local executor_pending_pool_key = executor_client_key .. ":in:pending_pool";
+            local sender_pending_pool_key = sender_base_key .. ":out:pending_pool";
+            local executor_pending_pool_key = executor_base_key .. ":in:pending_pool";
 
 
 
              -- проверяем не истекло ли время ожидания запроса
-            if expired < timestamp and not (timeout == "0") then
+            if expired < timestamp and not (timeout == 0) then
                 -- время ожидания истекло, пробуем закрыть запрос
 
                 local try_ack_request = redis.call("hincrby", request_key, "request_executor_ack", "1");
@@ -398,7 +401,8 @@ local function tick()
 
                     for _, listener in pairs(channel_listeners) do
                         -- ключи для работы с исполнителем при поиске
-                        local listener_client_key = base_path_key .. ":clients:list:" .. listener;
+                        local listener_base_key = base_path_key .. ":clients:list:" .. listener;
+                        local listener_client_key = listener_base_key .. ":info";
                         local listener_active_pool_key = base_path_key .. ":clients:active_pool:" .. listener;
 
 
@@ -436,8 +440,9 @@ local function tick()
                     else
                         -- исполнитель найден
                         -- формируем ключи для работы с ним
-                        local listener_client_key = base_path_key .. ":clients:list:" .. listener_node_id;
-                        local listener_pending_pool_key = listener_client_key .. ":in:pending_pool";
+                        local listener_base_key = base_path_key .. ":clients:list:" .. listener_node_id;
+                        local listener_client_key = listener_base_key .. ":info";
+                        local listener_pending_pool_key = listener_base_key .. ":in:pending_pool";
 
                         -- ключ для работы с группой запроса
                         local channel_group_key = channel_groups_key .. ":" .. group_key;
@@ -460,7 +465,7 @@ local function tick()
 
 
                             -- инкрементим счетчик запросов исполнителя
-                            redis.call("hincrby", listener_client_key, "in_pending_requests", "-1");
+                            redis.call("hincrby", listener_client_key, "in_pending_requests", "1");
 
                             -- добавляем запрос в его список ожидания
                             redis.call("sadd", listener_pending_pool_key, request_id);
@@ -515,7 +520,7 @@ local function tick()
 
 
                                 -- инкрементим счетчик запросов исполнителя
-                                redis.call("hincrby", listener_client_key, "in_pending_requests", "-1");
+                                redis.call("hincrby", listener_client_key, "in_pending_requests", "1");
 
                                 -- добавляем запрос в его список ожидания
                                 redis.call("sadd", listener_pending_pool_key, request_id);
@@ -546,10 +551,10 @@ local function tick()
 
 
     -- выставляем время для следующего тика
-    redis.call("set", tick_time_key, timestamp + 0.1);
+    redis.call("set", tick_time_key, timestamp + 0.01);
 
     -- снимаем блокировку с тика
-    redis.call("set", tick_lock_key, "0");
+    redis.call("set", tick_lock_key, "1");
 
 
 

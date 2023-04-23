@@ -5,7 +5,7 @@ local node_id = ARGV[1];
 
 -- всякие ключи
 local base_path_key = "origami";
-local client_id_key = base_path_key .. ":clients:list:" .. node_id;
+local client_id_key = base_path_key .. ":clients:list:" .. node_id .. ":info";
 
 local active_pool_key = base_path_key .. ":clients:active_pool:" .. node_id;
 
@@ -21,7 +21,7 @@ local timestamp = time[1] .. "." .. time[2];
 redis.call("hset", client_id_key, "last_ping_at", timestamp);
 
 -- добавлем слиента в активный пул
-redis.call('setex', 10, active_pool_key, timestamp);
+redis.call('setex', active_pool_key, 10, timestamp);
 
 
 

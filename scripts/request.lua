@@ -42,15 +42,17 @@ end;
 
 
 
+-- узнаем текущее время
+local time = redis.call("time");
+local timestamp = tonumber( time[1] .. "." .. time[2] );
+
+
+
 if try_after == '0' then
     try_after = (timestamp - 1);
 end;
 
 
-
--- узнаем текущее время
-local time = redis.call("time");
-local timestamp = tonumber( time[1] .. "." .. time[2] );
 
 -- статусы:
 --      PENDING                 - запрос создан

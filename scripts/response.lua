@@ -19,6 +19,7 @@ local exec_pool_base_path_key = requests_base_path_key .. ":executing_pool";
 local exec_pool_list_key = exec_pool_base_path_key .. ":list";
 
 local executor_key = clients_base_path .. ":" .. executor_node_id;
+local executor_client_key = executor_key .. ":info";
 local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
 local request_base_path_key = requests_base_path_key .. ":list:" .. request_id;
@@ -84,6 +85,7 @@ local no_response = request_data[4];
 
 -- формируем ключ для запросов к исполнителю
 local sender_key = clients_base_path .. ":" .. sender_node_id;
+local sender_client_key = sender_key .. ":info";
 local sender_executing_pool_key = sender_key .. ":out:executing_pool";
 
 -- ключи для работы с каналом
@@ -101,12 +103,12 @@ end;
 
 
 -- меняс счетчики инициатора
-redis.call("hincrby", sender_key, "out_executing_requests", "-1");
-redis.call("hincrby", sender_key, "out_" .. finish_column_name, "1");
+redis.call("hincrby", sender_client_key, "out_executing_requests", "-1");
+redis.call("hincrby", sender_client_key, "out_" .. finish_column_name, "1");
 
 -- меняем счетчики исполнителя
-redis.call("hincrby", executor_key, "in_executing_requests", "-1");
-redis.call("hincrby", executor_key, "in_" .. finish_column_name, "1");
+redis.call("hincrby", executor_client_key, "in_executing_requests", "-1");
+redis.call("hincrby", executor_client_key, "in_" .. finish_column_name, "1");
 
 
 

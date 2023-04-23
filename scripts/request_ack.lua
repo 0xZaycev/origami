@@ -21,6 +21,7 @@ local request_key = request_base_path_key .. ":info";
 
 local clients_base_path = base_path_key .. ":clients:list";
 local executor_key = clients_base_path .. ":" .. executor_node_id;
+local executor_client_key = executor_key .. ":info";
 local executor_pending_pool_key = executor_key .. ":in:pending_pool";
 local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
@@ -92,18 +93,19 @@ local sender_node_id = redis.call("hget", request_key, "sender_node_id");
 
 -- формируем ключ для запросов к исполнителю
 local sender_key = clients_base_path .. ":" .. sender_node_id;
+local sender_client_key = sender_key .. ":info";
 local sender_pending_pool_key = sender_key .. ":out:pending_pool";
 local sender_executing_pool_key = sender_key .. ":out:executing_pool";
 
 
 
 -- меняс счетчики инициатора
-redis.call("hincrby", sender_key, "out_pending_requests", "-1");
-redis.call("hincrby", sender_key, "out_executing_requests", "1");
+redis.call("hincrby", sender_client_key, "out_pending_requests", "-1");
+redis.call("hincrby", sender_client_key, "out_executing_requests", "1");
 
 -- меняем счетчики исполнителя
-redis.call("hincrby", executor_key, "in_pending_requests", "-1");
-redis.call("hincrby", executor_key, "in_executing_requests", "1");
+redis.call("hincrby", executor_client_key, "in_pending_requests", "-1");
+redis.call("hincrby", executor_client_key, "in_executing_requests", "1");
 
 
 
