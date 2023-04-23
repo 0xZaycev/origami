@@ -68,6 +68,8 @@ export class Core {
 
         const now = Date.now();
 
+        this.listenerConn.onMessage(this.messagesHandler.bind(this));
+
         this.consumer.restart(now);
         this.producer.restart(now);
 
