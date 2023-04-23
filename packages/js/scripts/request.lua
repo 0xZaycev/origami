@@ -15,13 +15,14 @@ local weight = ARGV[9];
 local base_path_key = "origami";
 local requests_base_path_key = base_path_key .. ":requests";
 
-local sender_key = base_path_key .. ":clients:" .. sender_node_id;
+local sender_key = base_path_key .. ":clients:list:" .. sender_node_id;
+local sender_client_key = sender_key .. ":info";
 local sender_pending_pool_key = sender_key .. ":out:pending_pool";
 
 local pending_pool_base_path_key = requests_base_path_key .. ":pending_pool";
 local pending_pool_list_key = pending_pool_base_path_key .. ":list";
 
-local request_base_path_key = requests_base_path_key .. ":" .. request_id;
+local request_base_path_key = requests_base_path_key .. ":list:" .. request_id;
 local request_key = request_base_path_key .. ":info";
 
 
@@ -29,7 +30,7 @@ local request_key = request_base_path_key .. ":info";
 -- проверяем что ранее не было запроса с таким же ID
 local request_is_exists = redis.call("hincrby", request_key, "request_sender_ack", "1");
 
-if not (request_is_exists == 0) then
+if not (request_is_exists == 1) then
     -- если данный запрос уже кто-то добавляет, то не надо ему мешать, он сам все сделает
     -- так же, это может быть повторная отправка в случае разрыва соединения
     redis.call('publish', "origami.c" .. sender_node_id, request_id);
@@ -80,7 +81,7 @@ redis.call('hmset', request_key,
     "error", "0",
 
     "request_expired", "-1",
-    "request_sender_ack", "0",
+    "request_sender_ack", "1",
     "request_executor_ack", "-1",
     "response_sender_ack", "-1",
     "response_executor_ack", "-1",
@@ -97,7 +98,7 @@ redis.call('hmset', request_key,
 
 
 -- добавим запрос в список отправителя
-redis.call("hincrby", sender_key, "out_pending_requests", "1");
+redis.call("hincrby", sender_client_key, "out_pending_requests", "1");
 redis.call("sadd", sender_pending_pool_key, request_id);
 
 -- добавляем в список ожидания
