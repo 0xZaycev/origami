@@ -1,26 +1,43 @@
+import * as os from "os";
 import crypto from "crypto";
 
-import {Consumer} from "./Consumer";
-import {Producer} from "./Producer";
-
-import {ScriptsStore} from "./ScriptsStore";
+import {Core} from "./Core";
+import {EScriptName, ScriptsStore} from "./ScriptsStore";
+import {IChannelHandler, IChannelOptions} from "./Consumer";
+import {IRequestOptions, TRequestResponse} from "./Producer";
 import {ESendCode, IConnectionOptions, Redis, TRequest} from "./Redis";
 
+import {initScript} from "./scripts";
+
+import {Resp} from "./utils/Resp";
 import {BaseResult} from "./utils/BaseResult";
 
-export class NewOrigami {
+
+let client = 'NodeJS';
+let clientVersion = '0';
+
+try {
+    const packageJson = require('../package.json');
+
+    clientVersion = packageJson.version;
+} catch (e) {
+    //
+}
+
+
+export class Origami {
     private nodeId = crypto.randomUUID();
+
     private options: IOrigamiOptions;
 
     private state = EOrigamiState.CLOSED;
     private stopped = false;
 
+    private readonly core: Core;
+
     private readonly pingConn: Redis;
     private readonly listenerConn: Redis;
     private readonly publisherConn: Redis;
-
-    private readonly consumer: Consumer;
-    private readonly producer: Producer;
 
     private readonly scriptsStore: ScriptsStore;
 
@@ -40,21 +57,27 @@ export class NewOrigami {
 
         this.scriptsStore = new ScriptsStore();
 
-        this.consumer = new Consumer({
+        this.core = new Core({
             nodeId: this.nodeId,
+
+            pingConn: this.pingConn,
+            listenerConn: this.listenerConn,
             publisherConn: this.publisherConn,
+
             scriptsStore: this.scriptsStore,
-        });
-        this.producer = new Producer({
-            nodeId: this.nodeId,
-            publisherConn: this.publisherConn,
-            scriptsStore: this.scriptsStore,
+
+            restart: () => {
+                this.closeConns().then();
+            },
         });
 
         this.setListenersOnConn(this.pingConn);
         this.setListenersOnConn(this.listenerConn);
         this.setListenersOnConn(this.publisherConn);
+
+        this.scriptsStore.registerSource(EScriptName.INIT, initScript.getScript());
     }
+
 
     getState() {
         return this.state;
@@ -64,6 +87,15 @@ export class NewOrigami {
         return this.stopped;
     }
 
+
+    channel<PARAMS = any, RESPONSE = any>(channelName: string, options: IChannelOptions, handler: IChannelHandler<PARAMS, RESPONSE>) {
+        return this.core.consumer.channel<PARAMS, RESPONSE>(channelName, options, handler);
+    }
+
+
+    request<RESPONSE = any, PARAMS = any>(channel: string, params: PARAMS, options?: Partial<IRequestOptions>): TRequestResponse<RESPONSE> {
+        return this.core.producer.request<RESPONSE, PARAMS>(channel, params, options);
+    }
 
 
     async start() {
@@ -76,14 +108,12 @@ export class NewOrigami {
 
         return this.startingPromise;
     }
-
     async stop() {
         this.stoppingPromise = this.stoppingPromise
             .then(() => this._stop());
 
         return this.stoppingPromise;
     }
-
 
 
     private async _start(): Promise<void> {
@@ -95,19 +125,13 @@ export class NewOrigami {
             this.state = EOrigamiState.CONNECTING;
         }
 
+        this.pingConn.setSendOnly(false);
+        this.publisherConn.setSendOnly(false);
+
         const connectResult = await this.connectAndAuthConns();
 
         if(connectResult === EDoStart.RESTART) {
-            if(this.isStopping()) {
-                return;
-            }
-
-            this.state = EOrigamiState.RECONNECTING;
-            this.startingLoop = true;
-
-            await new Promise(r => setTimeout(r, this.options.reconnectTimeout || 2000));
-
-            return this._start();
+            return this._restart();
         } else if(connectResult === EDoStart.STOP) {
             return;
         }
@@ -120,14 +144,34 @@ export class NewOrigami {
 
         this.startingLoop = false;
 
+        const failLoadScripts = await this.loadScripts();
+
+        if(failLoadScripts) {
+            return this._restart();
+        }
+
+        const failSubscribe = await this.subscribeOnTopics();
+
+        if(failSubscribe) {
+            return this._restart();
+        }
+
+        const failInit = await this.init();
+
+        if(failInit) {
+            return this._restart();
+        }
+
+        this.pingConn.setSendOnly(true);
+        this.publisherConn.setSendOnly(true);
+
         this.state = EOrigamiState.CONNECTED;
         this.stopped = false;
 
         this.lastErrMsg = '';
 
-        // todo: do sent requests
+        this.core.start();
     }
-
     private async _stop(): Promise<void> {
         if(this.stopped) {
             return;
@@ -138,14 +182,29 @@ export class NewOrigami {
 
         await this.startingPromise;
 
-        // todo: do stop accepting request
+        await this.core.stopRequestsAccepting();
 
-        // todo: do wait pending requests
+        await this.core.consumer.stop();
+
+        await this.core.producer.stop();
 
         await this.closeConns();
 
         this.state = EOrigamiState.CLOSED;
     }
+    private async _restart(): Promise<void> {
+        if(this.isStopping()) {
+            return;
+        }
+
+        this.state = EOrigamiState.RECONNECTING;
+        this.startingLoop = true;
+
+        await new Promise(r => setTimeout(r, this.options.reconnectTimeout || 2000));
+
+        return this._start();
+    }
+
 
     private async connectAndAuthConns() {
         const conns = [
@@ -206,6 +265,7 @@ export class NewOrigami {
         return EDoStart.CONTINUE;
     }
 
+
     private async closeConns() {
         const conns = [
             this.pingConn,
@@ -214,14 +274,116 @@ export class NewOrigami {
         ];
 
         for(const conn of conns) {
-            await conn.close()
+            conn.onMessage(undefined);
+
+            await conn.close();
         }
     }
+
+
+    private async init() {
+        const commandArgs: string[] = [];
+
+        let channelsLen = 0;
+
+        for(const [, channel] of this.core.consumer.getChannels()) {
+            channelsLen++;
+
+            commandArgs.push(
+                channel.channel,
+                channel.options.concurrent + '',
+                channel.options.reservoir.enable + '',
+                channel.options.reservoir.size + '',
+                channel.options.reservoir.interval + '',
+            );
+        }
+
+        commandArgs.push(
+            this.nodeId,
+            this.options.nodeName || 'none',
+
+            this.options.appName || 'none',
+            this.options.appVersion || 'none',
+
+            process.pid + '',
+            os.hostname() || 'none',
+            os.platform() || 'unknown',
+
+            client,
+            clientVersion,
+        );
+
+        const scriptHash = this.scriptsStore.getHash(EScriptName.INIT);
+
+        if(!scriptHash) {
+            // wft?
+
+            throw new Error('FUCK YOU!!! WHAT ARE YOU DOING? REVERT ALL YOUR CHANGES AND GO OUT FROM SOURCE CODE, LITTLE STUPID KID!!!!');
+        }
+
+        commandArgs.unshift('evalsha', scriptHash, channelsLen + '');
+
+        const initResult = await this.timeoutRequest<number>(this.publisherConn, Resp.encode(commandArgs), 2000);
+
+        if(!initResult.ok) {
+            return true;
+        }
+
+        if(!initResult.result) {
+            // wft?
+
+            throw new Error('FUCK YOU!!! WHAT ARE YOU DOING? REVERT ALL YOUR CHANGES AND GO OUT FROM SOURCE CODE, LITTLE STUPID KID!!!!');
+        }
+
+        return false;
+    }
+    private async loadScripts() {
+        for(const [scriptName, scriptSource] of this.scriptsStore.getScripts()) {
+            if(scriptName === EScriptName.PING) {
+                const loadResult = await this.timeoutRequest<string>(this.pingConn, Resp.encode(['script', 'load', scriptSource]), 2000);
+
+                if(!loadResult.ok) {
+                    return true;
+                }
+
+                this.scriptsStore.registerHash(scriptName, loadResult.result);
+            } else {
+                const loadResult = await this.timeoutRequest<string>(this.publisherConn, Resp.encode(['script', 'load', scriptSource]), 2000);
+
+                if(!loadResult.ok) {
+                    return true;
+                }
+
+                this.scriptsStore.registerHash(scriptName, loadResult.result);
+            }
+        }
+
+        return false;
+    }
+    private async subscribeOnTopics() {
+        this.core.fillListeners();
+
+        const commandArgs = Object.keys(this.core.listeners);
+
+        commandArgs.unshift('subscribe');
+
+        const subscribeResult = await this.timeoutRequest(this.listenerConn, Resp.encode(commandArgs), 2000);
+
+        if(!subscribeResult.ok) {
+            return subscribeResult;
+        }
+
+        this.listenerConn.onMessage(this.core.messagesHandler.bind(this.core));
+
+        return subscribeResult;
+    }
+
 
     private setListenersOnConn(conn: Redis) {
         conn.onClose(this.onCloseConn.bind(this));
         conn.onError(this.onErrorConn.bind(this));
     }
+
 
     private async timeoutRequest<RESULT>(conn: Redis, payload: string, timeout: number): Promise<TRequest<RESULT>> {
         return new Promise<TRequest<RESULT>>(async resolve => {
@@ -237,6 +399,7 @@ export class NewOrigami {
         });
     }
 
+
     private onCloseConn() {
         if(this.startingLoop) {
             return;
@@ -244,13 +407,15 @@ export class NewOrigami {
 
         this.startingLoop = true;
 
+        this.core.stop();
+
         if(this.state === EOrigamiState.CONNECTING || this.state === EOrigamiState.RECONNECTING || this.state === EOrigamiState.CLOSING) {
             return;
         }
 
         this.state = EOrigamiState.RECONNECTING;
 
-        this._start();
+        this._start().then();
 
         if(this.options.onClose) {
             this.options.onClose();
@@ -270,6 +435,10 @@ export class NewOrigami {
 }
 
 export interface IOrigamiOptions {
+    nodeName?: string;
+    appName?: string;
+    appVersion?: string;
+
     password?: string;
     connection: IConnectionOptions;
 
