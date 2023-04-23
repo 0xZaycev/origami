@@ -287,7 +287,7 @@ export class Origami {
         let channelsLen = 0;
 
         for(const [, channel] of this.core.consumer.getChannels()) {
-            channelsLen++;
+            channelsLen += 5;
 
             commandArgs.push(
                 channel.channel,
