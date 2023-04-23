@@ -293,7 +293,6 @@ export class Redis {
 
             if(parsedData[0] === undefined) {
                 if(data.length) {
-
                     this.dataBuffer = data;
 
                     return;
@@ -305,17 +304,13 @@ export class Redis {
             if(!this.sendOnly) {
                 if(this.messageHandler) {
                     this.messageHandler(parsedData[0]);
+                } else {
+                    const resolver = this.pendingCalls.shift();
 
-                    return;
+                    if(resolver) {
+                        resolver(BaseResult.ok(parsedData[0]));
+                    }
                 }
-
-                const resolver = this.pendingCalls.shift();
-
-                if(!resolver) {
-                    continue;
-                }
-
-                resolver(BaseResult.ok(parsedData[0]));
             }
         }
     }
