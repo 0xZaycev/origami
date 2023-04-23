@@ -11,7 +11,7 @@ export class Script {
     }
 
     loadScript(scriptPath: string) {
-        const dir = process.env.NODE_ENV === 'test' ? 'test-scripts' : 'scripts';
+        const dir = /*process.env.NODE_ENV === 'test' ? 'test-scripts' : */'scripts';
 
         const script = fs.readFileSync(path.resolve(__dirname, '../../', dir, scriptPath));
 
