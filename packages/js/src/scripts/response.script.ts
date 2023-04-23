@@ -4,6 +4,6 @@ import {headerScript} from "./header.script";
 
 export const responseScript = new Script();
 
-responseScript.loadScript('../../scripts/response.lua');
+responseScript.loadScript('response.lua');
 
 responseScript.loadDep(headerScript);

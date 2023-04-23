@@ -4,6 +4,6 @@ import {headerScript} from "./header.script";
 
 export const pingScript = new Script();
 
-pingScript.loadScript('../../scripts/ping.lua');
+pingScript.loadScript('ping.lua');
 
 pingScript.loadDep(headerScript);

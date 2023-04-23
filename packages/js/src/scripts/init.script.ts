@@ -4,6 +4,6 @@ import {headerScript} from "./header.script";
 
 export const initScript = new Script();
 
-initScript.loadScript('../../scripts/init.lua');
+initScript.loadScript('init.lua');
 
 initScript.loadDep(headerScript);
