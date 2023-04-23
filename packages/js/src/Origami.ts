@@ -31,6 +31,7 @@ export class Origami {
     private options: IOrigamiOptions;
 
     private state = EOrigamiState.CLOSED;
+    private initialized = false;
     private stopped = false;
 
     private readonly core: Core;
@@ -51,9 +52,9 @@ export class Origami {
     constructor(options: IOrigamiOptions) {
         this.options = options;
 
-        this.pingConn = new Redis(options.connection);
-        this.listenerConn = new Redis(options.connection);
-        this.publisherConn = new Redis(options.connection);
+        this.pingConn = new Redis('pingConn', options.connection);
+        this.listenerConn = new Redis('listenerConn', options.connection);
+        this.publisherConn = new Redis('publisherConn', options.connection);
 
         this.scriptsStore = new ScriptsStore();
 
@@ -88,7 +89,7 @@ export class Origami {
     }
 
 
-    channel<PARAMS = any, RESPONSE = any>(channelName: string, options: IChannelOptions, handler: IChannelHandler<PARAMS, RESPONSE>) {
+    channel<PARAMS = any, RESPONSE = any>(channelName: string, options: Partial<IChannelOptions>, handler: IChannelHandler<PARAMS, RESPONSE>) {
         return this.core.consumer.channel<PARAMS, RESPONSE>(channelName, options, handler);
     }
 
@@ -236,7 +237,7 @@ export class Origami {
             return EDoStart.CONTINUE;
         }
 
-        const authResult = await this.timeoutRequest<string>(conn, 'auth ' + this.options.password + '\r\n', 1000);
+        const authResult = await this.timeoutRequest<string>(conn, 'auth ' + this.options.password + '\r\n', 10000);
 
         if(!authResult.ok) {
             if(authResult.code === ESendCode.TIMEOUT) {
@@ -282,6 +283,10 @@ export class Origami {
 
 
     private async init() {
+        if(this.initialized) {
+            return false;
+        }
+
         const commandArgs: string[] = [];
 
         let channelsLen = 0;
@@ -335,6 +340,8 @@ export class Origami {
             throw new Error('FUCK YOU!!! WHAT ARE YOU DOING? REVERT ALL YOUR CHANGES AND GO OUT FROM SOURCE CODE, LITTLE STUPID KID!!!!');
         }
 
+        this.initialized = true;
+
         return false;
     }
     private async loadScripts() {
@@ -370,12 +377,12 @@ export class Origami {
         const subscribeResult = await this.timeoutRequest(this.listenerConn, Resp.encode(commandArgs), 2000);
 
         if(!subscribeResult.ok) {
-            return subscribeResult;
+            return true;
         }
 
         this.listenerConn.onMessage(this.core.messagesHandler.bind(this.core));
 
-        return subscribeResult;
+        return false;
     }
 
 
