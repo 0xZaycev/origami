@@ -13,6 +13,10 @@ export class ScriptsStore {
     getHash(script: EScriptName) {
         return this.hashes.get(script);
     }
+
+    getScripts() {
+        return this.sources.entries();
+    }
 }
 
 export enum EScriptName {
