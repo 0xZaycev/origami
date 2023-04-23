@@ -18,11 +18,11 @@ local channels = KEYS;
 
 -- всякие ключи
 local base_path_key = "origami";
-local client_id_key = base_path_key .. ":clients:list:" .. node_id;
-local client_lock_key = client_id_key .. ":lock";
+local client_key = base_path_key .. ":clients:list:" .. node_id;
+local client_lock_key = client_key .. ":lock";
 
-local client_channels_key = client_id_key .. ":channels";
-local client_temp_channels_key = client_channels_key .. ":temp";
+local client_info_key = client_key .. ":info";
+local client_channels_key = client_key .. ":channels";
 
 local channel_base_path_key = base_path_key .. ":channels";
 
@@ -48,7 +48,7 @@ local time = redis.call("time");
 local timestamp = time[1] .. "." .. time[2];
 
 -- создаем самого клиента
-redis.call("hmset", client_id_key,
+redis.call("hmset", client_info_key,
     "node_id", node_id,
     "node_name", node_name,
 
@@ -79,13 +79,26 @@ redis.call("hmset", client_id_key,
 
 
 
--- и чтобы ненароком не накосячить с подписками, надо аккуратно отписаться от созданных ранее
+-- и чтобы ненароком не накосячить с подписками, мы отпишемся от всех старых подписок клиента
+-- и подпишимся на новые
 
--- добавляем коналы во временный список чтобы потом можно было отписаться от неактивных
-redis.call("sadd", client_temp_channels_key, table.unpack(channels));
 
--- узнаем разницу между старыми каналами и новыми
-local diff_channels = redis.call("sdiff", client_channels_key, client_temp_channels_key);
+-- получаем список текущих подписок
+local old_channels = redis.call("smembers", client_channels_key);
+
+for _, channel_name in pairs(old_channels) do
+    -- отписываемся от каждой
+
+    -- убираем клиента из списка доступных обработчиков
+    redis.call("srem", channel_base_path_key .. ":" .. channel_name .. ":listeners", node_id);
+end;
+
+-- чистим список подписок
+redis.call("del", client_channels_key);
+
+
+
+-- подписываемся на новые
 
 -- параметры канала
 local channel_name = "";
@@ -94,7 +107,7 @@ local channel_reservoir_enable = ""; -- 0 - disable; 1 - enable; 2 - by group;
 local channel_reservoir_size = "";
 local channel_reservoir_interval = "";
 
-for _, channel_parameter in pairs(diff_channels) do
+for _, channel_parameter in pairs(channels) do
     if channel_name == "" then
         channel_name = channel_parameter .. "";
     else
@@ -126,26 +139,12 @@ for _, channel_parameter in pairs(diff_channels) do
                         "reservoir_interval", channel_reservoir_interval
                     );
 
-                    -- узнаем является ли клиент слушателем этого канала
-                    local channel_is_exists = redis.call('sismember', client_channels_key, channel_name);
+                    -- добавляем клиента в список слушателей канала
+                    redis.call("sadd", channel_listeners_list_key, node_id);
 
-                    if channel_is_exists == 1 then
-                        -- уже была подписка на канал, надо отписаться
+                    -- добавляем канал в список каналов клиента
+                    redis.call("sadd", client_channels_key, channel_name);
 
-                        -- убираем клиента из списка доступных обработчиков
-                        redis.call("srem", channel_listeners_list_key, node_id);
-
-                        -- удираем подписку у клиента
-                        redis.call("srem", client_channels_key, channel_name);
-                    else
-                        -- подписки не было, надо подписаться
-
-                        -- добавляем клиента в список слушателей
-                        redis.call("sadd", channel_listeners_list_key, node_id);
-
-                        -- инкрементим кол-во слушаетелей
-                        redis.call("incr", channel_listeners_count_key);
-                    end;
 
 
                     -- чистим параметры для следующей итерации
@@ -162,11 +161,8 @@ end;
 
 
 
--- временный список больше не нужен — удаляем
-redis.call("del", client_temp_channels_key);
-
--- добавлем слиента в активный пул
-redis.call('setex', 10, active_pool_key, timestamp);
+-- добавлем клиента в активный пул
+redis.call('setex', active_pool_key, 10, timestamp);
 
 -- снимаем блокировку с клиента
 redis.call('del', client_lock_key);
