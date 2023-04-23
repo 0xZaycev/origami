@@ -241,7 +241,7 @@ export class Redis {
         }
     }
 
-    onMessage(handler: IMessageHandler) {
+    onMessage(handler?: IMessageHandler) {
         this.messageHandler = handler;
     }
 
