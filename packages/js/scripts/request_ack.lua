@@ -16,7 +16,7 @@ local exec_pool_base_path_key = requests_base_path_key .. ":executing_pool";
 local exec_pool_list_key = exec_pool_base_path_key .. ":list";
 local exec_pool_count_key = exec_pool_base_path_key .. ":count";
 
-local request_base_path_key = requests_base_path_key .. ":" .. request_id;
+local request_base_path_key = requests_base_path_key .. ":list:" .. request_id;
 local request_key = request_base_path_key .. ":info";
 
 local clients_base_path = base_path_key .. ":clients:list";

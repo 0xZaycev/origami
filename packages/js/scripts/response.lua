@@ -21,7 +21,7 @@ local exec_pool_list_key = exec_pool_base_path_key .. ":list";
 local executor_key = clients_base_path .. ":" .. executor_node_id;
 local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
-local request_base_path_key = requests_base_path_key .. ":" .. request_id;
+local request_base_path_key = requests_base_path_key .. ":list:" .. request_id;
 local request_key = request_base_path_key .. ":info";
 
 
