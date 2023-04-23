@@ -1,4 +1,4 @@
-function tick()
+local function tick()
     -- определим базовые ключи
     local base_path_key = "origami";
     local channels_base_path_key = base_path_key .. ":channels";
