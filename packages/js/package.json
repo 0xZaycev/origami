@@ -14,6 +14,14 @@
     "ack",
     "zaycev"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xZaycev/origami.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xZaycev/origami/issues"
+  },
+  "homepage": "https://github.com/0xZaycev/origami#readme",
   "author": "Alex Zaycev (alex@zaycev.dev)",
   "license": "MIT",
   "devDependencies": {
