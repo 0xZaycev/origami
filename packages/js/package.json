@@ -1,6 +1,6 @@
 {
   "name": "@zaycev.dev/origami",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Super-puper cool redis rpc lib",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
