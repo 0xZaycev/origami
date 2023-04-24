@@ -1,8 +1,8 @@
 import {Socket} from 'net';
 
 import {List} from "./utils/List";
-import {Resp} from "./utils/Resp";
 import {Listeners} from "./utils/Listeners";
+import {Reply, RespDecoder} from "./utils/RespDecodder";
 import {BaseResult, TBaseResult} from "./utils/BaseResult";
 
 export class Redis {
@@ -17,6 +17,8 @@ export class Redis {
 
     // TCP socket
     private socket: Socket | undefined;
+
+    private decoder: RespDecoder;
 
     // aka events-emitter
     private listeners: Listeners = new Listeners();
@@ -41,6 +43,11 @@ export class Redis {
         this.name = name;
 
         this.options = options;
+
+        this.decoder = new RespDecoder({
+            returnStringsAsBuffers: false,
+            onReply: this.onParseSocketMessage.bind(this),
+        });
     }
 
 
@@ -67,6 +74,8 @@ export class Redis {
             return;
         }
 
+        this.dataBuffer = Buffer.from([]);
+
         this.socket.off('ready', this._onReady);
         this.socket.off('data', this._onData);
 
@@ -87,6 +96,8 @@ export class Redis {
         this.socket = undefined;
 
         this.dropPendingCalls();
+
+        this.decoder.reset();
     }
 
 
@@ -322,46 +333,7 @@ export class Redis {
         this.changeState(EConnectionState.CONNECTED);
     }
     private onSocketData(data: Buffer) {
-        if(this.dataBuffer.length) {
-            data = Buffer.concat([this.dataBuffer, data]);
-            this.dataBuffer = Buffer.from([]);
-        }
-
-        while(true) {
-            if(!data.length) {
-                return;
-            }
-
-            const parsedData = Resp.decode(data);
-
-            if(parsedData === undefined) {
-                this.dataBuffer = data;
-
-                return;
-            }
-
-            data = data.subarray(parsedData[1]);
-
-            if(parsedData[0] === undefined) {
-                if(data.length) {
-                    this.dataBuffer = data;
-
-                    return;
-                }
-
-                return;
-            }
-
-            if(!this.sendOnly) {
-                this.emitMessage(parsedData[0]);
-
-                const resolver = this.pendingCalls.shift();
-
-                if(resolver) {
-                    resolver(BaseResult.ok(parsedData[0]));
-                }
-            }
-        }
+        this.decoder.write(data);
     }
     private onSocketError(error: Error) {
         this.listeners.call('socket:error', error);
@@ -382,6 +354,18 @@ export class Redis {
         this.changeState(EConnectionState.CLOSED);
 
         this.emitClose();
+    }
+
+    private onParseSocketMessage(message: Reply) {
+        if(!this.sendOnly) {
+            this.emitMessage(message as [string, string, string]);
+
+            const resolver = this.pendingCalls.shift();
+
+            if(resolver) {
+                resolver(BaseResult.ok(message));
+            }
+        }
     }
 
 
