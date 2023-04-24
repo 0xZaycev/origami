@@ -1,11 +1,12 @@
 {
   "name": "@zaycev.dev/origami",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Super-puper cool redis rpc lib",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "build": "rm -rf ./dist && tsc"
   },
   "keywords": [
     "redis",
