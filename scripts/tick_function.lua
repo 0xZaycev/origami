@@ -43,14 +43,14 @@ local function tick()
 
 
     -- делаем проверку времени чтобы не слишком часто выполнять тик
-    --local tick_time = tonumber( redis.call("get", tick_time_key) );
+    local tick_time = tonumber( redis.call("get", tick_time_key) );
 
-    --if timestamp <= tick_time then
-    --    -- еще рано выполнять тик, убираем блокировку
-    --    redis.call("set", tick_lock_key, "1");
-    --
-    --    return 1;
-    --end;
+    if timestamp <= tick_time then
+        -- еще рано выполнять тик, убираем блокировку
+        redis.call("set", tick_lock_key, "1");
+
+        return 1;
+    end;
 
 
 
@@ -83,19 +83,14 @@ local function tick()
             -- получаем данные из запроса
             local request_data = redis.call("hmget", request_key,
                 "sender_node_id",
-                "executor_node_id",
                 "try_after",
-                "response", "error",
                 "sent_to_initiator_at"
             );
 
             -- парсим данные запроса
             local sender_node_id = request_data[1];
-            local executor_node_id = request_data[2];
-            local try_after = tonumber( request_data[3] );
-            local response = request_data[4];
-            local error = request_data[5];
-            local sent_to_initiator_at = tonumber( request_data[6] );
+            local try_after = tonumber( request_data[2] );
+            local sent_to_initiator_at = tonumber( request_data[3] );
 
 
 
@@ -106,20 +101,20 @@ local function tick()
                 -- считаем как давно ответ был создан
                 local response_time_delta = timestamp - sent_to_initiator_at;
 
-                if response_time_delta > 172800 then
+                if response_time_delta > (2 * 24 * 60 * 60) then
                     -- если прошло более 2 дней, то убираем запрос
 
                     -- удалем из списка ожидания подтверждения ответа
                     redis.call("lrem", response_ack_pool_list_key, "1", request_id);
 
-                    -- ставим время жизни запросу 2 недели
-                    redis.call("expire", request_key, "1209600");
+                    -- ставим время жизни запросу 6 часов
+                    redis.call("expire", request_key, 6 * 60 * 60);
 
                     -- делаем сдвиг
                     response_ack_offset = response_ack_offset + 1;
                 else
                     -- уведоиляем инициатора
-                    redis.call("publish", "origami.e" .. sender_node_id, error .. request_id .. executor_node_id .. response);
+                    redis.call("publish", "origami.e" .. sender_node_id, request_id);
 
                     -- обновляем данные запроса
                     redis.call("hset", request_key, "try_after", timestamp + 0.1);
@@ -158,22 +153,18 @@ local function tick()
 
             -- получаем данные из запроса
             local request_data = redis.call("hmget", request_key,
-                    "sender_node_id",
-                    "executor_node_id",
-                    "channel", "group_key",
-                    "try_after",
-                    "params",
-                    "sent_to_executor_at"
+                "executor_node_id",
+                "channel", "group_key",
+                "try_after",
+                "sent_to_executor_at"
             );
 
             -- парсим данные запроса
-            local sender_node_id = request_data[1];
-            local executor_node_id = request_data[2];
-            local channel = request_data[3];
-            local group_key = request_data[4];
-            local try_after = tonumber( request_data[5] );
-            local params = request_data[6];
-            local sent_to_executor_at = tonumber( request_data[7] );
+            local executor_node_id = request_data[1];
+            local channel = request_data[2];
+            local group_key = request_data[3];
+            local try_after = tonumber( request_data[4] );
+            local sent_to_executor_at = tonumber( request_data[5] );
 
 
 
@@ -253,7 +244,7 @@ local function tick()
                     -- ну и чтобы не сильно спамить исполнителя, то проверяем
                     -- что прошло достаточно времени перед повторной отправкой
 
-                    redis.call("publish", "origami.b" .. executor_node_id .. channel, request_id .. sender_node_id .. params);
+                    redis.call("publish", "origami.b" .. executor_node_id .. channel, request_id);
                 end;
             end;
         end;
@@ -291,8 +282,7 @@ local function tick()
             local request_data = redis.call("hmget", request_key,
                 "sender_node_id", "executor_node_id",
                 "channel", "group_key",
-                "expired", "timeout", "try_after", "no_response",
-                "params"
+                "expired", "timeout", "try_after", "no_response"
             );
 
             -- парсим данные запроса
@@ -304,7 +294,6 @@ local function tick()
             local timeout = tonumber( request_data[6] );
             local try_after = tonumber( request_data[7] );
             local no_response = request_data[8];
-            local params = request_data[9];
 
 
 
@@ -377,7 +366,7 @@ local function tick()
                         redis.call("rpush", response_ack_pool_list_key, request_id);
 
                         -- и отправляем ивент инициатору о том, что запрос был закрыт из-за долгой обработки
-                        redis.call("publish", "origami.e" .. sender_node_id, "2" .. request_id);
+                        redis.call("publish", "origami.e" .. sender_node_id, request_id);
                     end;
                 end;
             else
@@ -470,8 +459,8 @@ local function tick()
                             -- инкрементим кол-во активных запросов
                             redis.call("incr", channel_group_key);
 
-                            -- устанавливаем у группы самоудаление через неделю
-                            redis.call("expire", channel_group_key, "14515200");
+                            -- устанавливаем у группы самоудаление через день
+                            redis.call("expire", channel_group_key, "86400");
 
 
 
@@ -501,7 +490,7 @@ local function tick()
 
 
                             -- оповещаем исполнителя о новой задаче
-                            redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id .. sender_node_id .. params);
+                            redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id);
                         else
                             -- узнаем кол-во активных запросов
                             local channel_active_requests = redis.call("incrby", channel_group_key, "0");
@@ -515,8 +504,8 @@ local function tick()
                                 -- инкрементим кол-во активных запросов
                                 redis.call("incr", channel_group_key);
 
-                                -- устанавливаем у группы самоудаление через неделю
-                                redis.call("expire", channel_group_key, "14515200");
+                                -- устанавливаем у группы самоудаление через день
+                                redis.call("expire", channel_group_key, "86400");
 
 
 
@@ -550,7 +539,7 @@ local function tick()
 
 
                                 -- оповещаем исполнителя о новой задаче
-                                redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id .. sender_node_id .. params);
+                                redis.call("publish", "origami.b" .. listener_node_id .. channel, request_id);
                             end;
                         end;
                     end;
