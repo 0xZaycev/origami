@@ -16,13 +16,22 @@ local ack_pool_list_key = ack_pool_base_path_key .. ":list";
 
 
 
+-- получаем данные запроса
+local request_data = redis.call("hmget", request_key, "executor_node_id", "response", "error");
+
+local request_executor = request_data[1];
+local request_response = request_data[2];
+local request_error = request_data[3];
+
+
+
 -- узнаем статус запроса
 local request_is_exists = redis.call("hincrby", request_key, "response_sender_ack", "1");
 
 if not (request_is_exists == 0) then
     -- инициатор уже подтвердил получение ответа
 
-    redis.call("publish", "origami.f" .. sender_node_id, request_id);
+    redis.call("publish", "origami.f" .. sender_node_id, request_error .. request_id .. request_executor .. request_response);
 
 
 
@@ -49,12 +58,12 @@ redis.call("hmset", request_key,
     "initiator_accept_at", timestamp
 );
 
--- устанавляваем время жизни запроса на 3 дня
-redis.call("expire", request_key, "259200");
+-- устанавляваем время жизни запроса на 3 часа
+redis.call("expire", request_key, 3 * 60 * 60);
 
 
 -- оповещаем инициатора
-redis.call("publish", "origami.f" .. sender_node_id, request_id);
+redis.call("publish", "origami.f" .. sender_node_id, request_error .. request_id .. request_executor .. request_response);
 
 
 

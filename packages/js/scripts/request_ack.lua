@@ -26,16 +26,21 @@ local executor_pending_pool_key = executor_key .. ":in:pending_pool";
 local executor_executing_pool_key = executor_key .. ":in:executing_pool";
 
 
+-- получаем данные запроса
+local request_data = redis.call("hmget", request_key, "state", "sender_node_id", "executor_node_id", "params");
+
+local request_state = request_data[1];
+local request_sender = request_data[2];
+local request_executor = request_data[3];
+local request_params = request_data[4];
+
+
 
 -- проверяем что запрос не взял кто-то другой
 local request_is_exists = redis.call("hincrby", request_key, "request_executor_ack", "1");
 
 if not (request_is_exists == 0) then
     -- проверим что этот исполнитель и взял уже запрос
-    local request_data = redis.call("hmget", request_key, "state", "executor_node_id");
-
-    local request_state = request_data[1];
-    local request_executor = request_data[2];
 
     -- делаем проверку статуса запроса на случай если
     -- исполнитель получил повторное событие и пытается
@@ -47,7 +52,7 @@ if not (request_is_exists == 0) then
     if request_executor == executor_node_id then
         -- это он и есть, прислал повторное подтверждение
 
-        redis.call("publish", "origami.d" .. executor_node_id, "1" .. request_id);
+        redis.call("publish", "origami.d" .. executor_node_id, "1" .. request_id .. request_sender .. request_params);
     else
         -- надо уведомить что запрос был уже перераспределен другому исполнителю
 
@@ -117,7 +122,7 @@ redis.call("smove", executor_pending_pool_key, executor_executing_pool_key, requ
 
 -- оповещаем исполнителя о том, что он может начать обрабатывать запрос
 -- возможно, оповещение можно перенести выше чтобы исполнитель не тратил время
-redis.call('publish', "origami.d" .. executor_node_id, "1" .. request_id);
+redis.call('publish', "origami.d" .. executor_node_id, "1" .. request_id .. request_sender .. request_params);
 
 
 

@@ -72,7 +72,7 @@ redis.call("hmset", client_info_key,
     "out_errored_requests", "0",
     "out_processed_requests", "0",
 
-    "last_ping_at", "0",
+    "last_ping_at", timestamp,
 
     "created_at", timestamp
 );
@@ -136,7 +136,8 @@ for _, channel_parameter in pairs(channels) do
                         "concurrent", channel_concurrent,
                         "reservoir_enable", channel_reservoir_enable,
                         "reservoir_size", channel_reservoir_size,
-                        "reservoir_interval", channel_reservoir_interval
+                        "reservoir_interval", channel_reservoir_interval,
+                        "rr_counter", "0"
                     );
 
                     -- добавляем клиента в список слушателей канала

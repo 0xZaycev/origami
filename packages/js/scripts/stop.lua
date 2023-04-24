@@ -32,9 +32,9 @@ end;
 
 
 
--- устанавляем всем время жизни 2 недели
-redis.call("expire", client_channels_key, "1209600");
-redis.call("expire", client_id_key, "1209600");
+-- устанавляем всем время жизни 1 неделю
+redis.call("expire", client_channels_key, 7 * 24 * 60 * 60);
+redis.call("expire", client_id_key .. ":info", 7 * 24 * 60 * 60);
 
 
 
