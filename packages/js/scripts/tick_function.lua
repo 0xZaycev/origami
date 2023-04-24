@@ -43,7 +43,7 @@ local function tick()
 
 
     -- делаем проверку времени чтобы не слишком часто выполнять тик
-    local tick_time = tonumber( redis.call("get", tick_time_key) );
+    --local tick_time = tonumber( redis.call("get", tick_time_key) );
 
     --if timestamp <= tick_time then
     --    -- еще рано выполнять тик, убираем блокировку
@@ -396,6 +396,8 @@ local function tick()
                     local listener_node_id = "";
                     local listener_active_requests = 0;
 
+                    local available_listeners = {};
+
                     -- достаем всех исполнителей кто слушает данный канал
                     local channel_listeners = redis.call("smembers", channel_listeners_list_key);
 
@@ -411,26 +413,35 @@ local function tick()
                         local listener_is_active = redis.call("exists", listener_active_pool_key);
 
                         if listener_is_active == 1 then
-                            -- так как исполнитель активен, то надо получить список активных
-                            local listener_requests = redis.call("hmget", listener_client_key, "in_pending_requests", "in_executing_requests");
+                            -- добавляем слушателя в список
+                            table.insert(available_listeners, listener .. "");
 
-                            -- суммируем исполняющиеся запросы и пендящиеся
-                            local _listener_active_requests = tonumber(listener_requests[1]) + tonumber(listener_requests[2]);
-
-                            if listener_node_id == "" then
-                                -- если это первый исполнитель, то пишем его как эталон
-                                listener_node_id = listener .. "";
-                                listener_active_requests = _listener_active_requests;
-                            else
-                                -- проверяем подходит ли исполнитель нам
-                                if _listener_active_requests < listener_active_requests then
-                                    -- если подходит, то записываем его
-                                    listener_node_id = listener .. "";
-                                    listener_active_requests = _listener_active_requests;
-                                end;
-                            end;
+                            ---- так как исполнитель активен, то надо получить список активных
+                            --local listener_requests = redis.call("hmget", listener_client_key, "in_pending_requests", "in_executing_requests");
+                            --
+                            ---- суммируем исполняющиеся запросы и пендящиеся
+                            --local _listener_active_requests = tonumber(listener_requests[1]) + tonumber(listener_requests[2]);
+                            --
+                            --if listener_node_id == "" then
+                            --    -- если это первый исполнитель, то пишем его как эталон
+                            --    listener_node_id = listener .. "";
+                            --    listener_active_requests = _listener_active_requests;
+                            --else
+                            --    -- проверяем подходит ли исполнитель нам
+                            --    if _listener_active_requests < listener_active_requests then
+                            --        -- если подходит, то записываем его
+                            --        listener_node_id = listener .. "";
+                            --        listener_active_requests = _listener_active_requests;
+                            --    end;
+                            --end;
                         end;
                     end;
+
+                    local pending_counters = redis.call("hincrby", channel_info_key, "rr_counter", "1");
+
+                    local listener_index = math.fmod(pending_counters, #(available_listeners)) + 1;
+
+                    listener_node_id = available_listeners[ (listener_index) ] .. "";
 
                     -- проверяем есть ли исполнитель
                     if listener_node_id == "" then
