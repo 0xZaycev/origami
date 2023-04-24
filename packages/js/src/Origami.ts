@@ -151,15 +151,15 @@ export class Origami {
             return this._restart();
         }
 
-        const failSubscribe = await this.subscribeOnTopics();
-
-        if(failSubscribe) {
-            return this._restart();
-        }
-
         const failInit = await this.init();
 
         if(failInit) {
+            return this._restart();
+        }
+
+        const failSubscribe = await this.subscribeOnTopics();
+
+        if(failSubscribe) {
             return this._restart();
         }
 
@@ -210,8 +210,8 @@ export class Origami {
     private async connectAndAuthConns() {
         const conns = [
             this.pingConn,
-            this.listenerConn,
             this.publisherConn,
+            this.listenerConn,
         ];
 
         for(const conn of conns) {
