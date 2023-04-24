@@ -166,6 +166,22 @@ export class Producer {
         request.state = ERequestState.PROCESSING_REQUEST;
     }
     private async requestResponse(message: string) {
+        // message === requestId
+
+        const request = this.requests.get(message);
+
+        if(!request) {
+            // wtf?
+
+            return;
+        }
+
+        request.state = ERequestState.SENDING_RESPONSE_ACK;
+        request.timestamp = Date.now();
+
+        this.sendResponseAck(message);
+    }
+    private async responseAck(message: string) {
         // 0-1 - is error
         // 1-37 - requestId
         // 37-73 - executor node id (optional, if timeout executor node id length is 0)
@@ -181,14 +197,17 @@ export class Producer {
             return;
         }
 
-        request.state = ERequestState.SENDING_RESPONSE_ACK;
-        request.timestamp = Date.now();
+        request.state = ERequestState.REQUEST_PROCESSED;
 
         if(message[0] === '0') {
             const executorId = message.substring(37, 73);
             const response = message.substring(73);
 
-            request.resolver(BaseResult.ok(JSON.parse(response), executorId));
+            try {
+                request.resolver(BaseResult.ok(JSON.parse(response), executorId));
+            } catch (e) {
+                request.resolver(BaseResult.fail(EResponseCode.UNEXPECTED_ERROR, e, executorId));
+            }
         } else if(message[0] === '1') {
             const executorId = message.substring(37, 73);
             const response = message.substring(73);
@@ -198,22 +217,7 @@ export class Producer {
             request.resolver(BaseResult.fail(EResponseCode.TIMEOUT_ERROR, null));
         }
 
-        this.sendResponseAck(requestId);
-    }
-    private async responseAck(message: string) {
-        // message === requestId
-
-        const request = this.requests.get(message);
-
-        if(!request) {
-            // wtf?
-
-            return;
-        }
-
-        request.state = ERequestState.REQUEST_PROCESSED;
-
-        this.requests.delete(message);
+        this.requests.delete(requestId);
 
         this.activeRequests--;
 

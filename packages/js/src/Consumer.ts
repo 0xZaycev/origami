@@ -130,6 +130,9 @@ export class Consumer {
     private async requestAck(message: string) {
         // 0-1 - result
         // 1-37 - requestId
+        // 37 - 73 - senderId
+        // 73 - params
+
         const requestId = message.substring(1, 37);
 
         const request = this.requests.get(requestId);
@@ -155,6 +158,9 @@ export class Consumer {
 
             return;
         }
+
+        request.senderId = message.substring(37, 73);
+        request.params = message.substring(73);
 
         request.state = ERequestState.PROCESSING_REQUEST;
 
@@ -223,8 +229,6 @@ export class Consumer {
     private handlerWrapper(handler: IChannelHandler): IMessageHandler {
         return async (message: string) => {
             // 0-36 - requestId
-            // 36-72 - senderId
-            // 72 - params
 
             if(this.stoppingPromise) {
                 return;
@@ -238,16 +242,13 @@ export class Consumer {
                 return;
             }
 
-            const senderId = message.substring(36, 72);
-            const params = message.substring(72);
-
             request = {
                 id: requestId,
-                senderId: senderId,
+                senderId: '',
 
                 state: ERequestState.SENDING_REQUEST_ACK,
 
-                params: params,
+                params: '',
                 response: '',
                 errored: false,
 
